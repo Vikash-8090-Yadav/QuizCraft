@@ -2,13 +2,14 @@
 
 import Link from "next/link"
 import { useWeb3 } from "./Web3Provider"
+import { CONFLUX_TESTNET } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Wallet, Trophy, Gamepad2, ImageIcon, Menu, X, Sparkles } from "lucide-react"
 import { useState } from "react"
 
 export function Navbar() {
-  const { account, isConnected, connectWallet, loading, error } = useWeb3()
+  const { account, isConnected, isOnConflux, connectWallet, loading, error, chainId, switchToConflux } = useWeb3()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   const formatAddress = (address: string) => {
@@ -74,8 +75,13 @@ export function Navbar() {
 
             {isConnected ? (
               <div className="flex items-center space-x-3 bg-accent/10 rounded-full px-4 py-2 border border-accent/20">
-                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                <div className={`h-2 w-2 rounded-full ${isOnConflux ? "bg-green-500" : "bg-yellow-500"} animate-pulse`}></div>
                 <span className="text-sm font-semibold text-accent">{formatAddress(account!)}</span>
+                {!isOnConflux && (
+                  <Button size="sm" variant="secondary" onClick={switchToConflux} className="ml-2">
+                    Switch to {CONFLUX_TESTNET.name}
+                  </Button>
+                )}
               </div>
             ) : (
               <Button
