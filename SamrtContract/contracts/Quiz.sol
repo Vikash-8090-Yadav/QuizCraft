@@ -24,6 +24,8 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     // Structure to hold all lobby data
     struct Lobby {
         uint256 id;
+        string name;           // Lobby name (e.g., "Lightning Duel", "Battle Royale")
+        string category;       // Quiz category (e.g., "Technology", "Crypto", "Science")
         uint256 entryFee;
         uint256 playerCount;
         uint256 maxPlayers;
@@ -33,6 +35,7 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         address[] players;
         address winner;
         bool prizeDistributed;
+        address creator;       // Who created the lobby
     }
 
     // Mappings for data storage
@@ -42,7 +45,7 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     uint256 public nextLobbyId; // Counter for lobby IDs
 
     // ===== EVENTS =====
-    event LobbyCreated(uint256 indexed lobbyId, uint256 entryFee, uint256 maxPlayers);
+    event LobbyCreated(uint256 indexed lobbyId, string name, string category, uint256 entryFee, uint256 maxPlayers, address creator);
     event PlayerJoined(uint256 indexed lobbyId, address player);
     event LobbyCompleted(uint256 indexed lobbyId, address winner, uint256 prize);
     event LobbyCancelled(uint256 indexed lobbyId);
@@ -80,24 +83,37 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
 
     /**
      * @dev Allows a user to create a new game lobby.
+     * @param _name The name of the lobby (e.g., "Lightning Duel", "Battle Royale").
+     * @param _category The quiz category (e.g., "Technology", "Crypto", "Science").
      * @param _entryFee The entry fee in CFX required to join the lobby.
      * @param _maxPlayers The maximum number of players allowed in the lobby.
      * @return The ID of the newly created lobby.
      */
-    function createLobby(uint256 _entryFee, uint256 _maxPlayers) external returns (uint256) {
+    function createLobby(
+        string memory _name,
+        string memory _category,
+        uint256 _entryFee,
+        uint256 _maxPlayers
+    ) external returns (uint256) {
+        require(bytes(_name).length > 0, "Lobby name cannot be empty");
+        require(bytes(_category).length > 0, "Category cannot be empty");
         require(_entryFee > 0, "Entry fee must be greater than 0");
         require(_maxPlayers > 1, "Max players must be at least 2");
+        require(_maxPlayers <= 10, "Max players cannot exceed 10");
 
         uint256 lobbyId = nextLobbyId++;
         Lobby storage newLobby = lobbies[lobbyId];
 
         newLobby.id = lobbyId;
+        newLobby.name = _name;
+        newLobby.category = _category;
         newLobby.entryFee = _entryFee;
         newLobby.maxPlayers = _maxPlayers;
         newLobby.createdAt = block.timestamp;
         newLobby.status = LobbyStatus.OPEN;
+        newLobby.creator = msg.sender;
 
-        emit LobbyCreated(lobbyId, _entryFee, _maxPlayers);
+        emit LobbyCreated(lobbyId, _name, _category, _entryFee, _maxPlayers, msg.sender);
         return lobbyId;
     }
 
