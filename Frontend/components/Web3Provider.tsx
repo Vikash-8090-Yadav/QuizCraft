@@ -15,7 +15,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isConnected = !!account && chainId === CONFLUX_TESTNET.chainId
+  const isConnected = !!account
+  const isOnConflux = chainId === CONFLUX_TESTNET.chainId
 
   const connectWallet = async () => {
     try {
@@ -81,6 +82,26 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   // Listen for account and network changes
   useEffect(() => {
     if (window.ethereum) {
+      // Eagerly detect current accounts and chainId without prompting
+      (async () => {
+        try {
+          const currentChainIdHex = await window.ethereum.request({ method: "eth_chainId" })
+          if (currentChainIdHex) {
+            setChainId(Number.parseInt(currentChainIdHex, 16))
+          }
+          const currentAccounts: string[] = await window.ethereum.request({ method: "eth_accounts" })
+          if (currentAccounts && currentAccounts.length > 0) {
+            const browserProvider = new ethers.BrowserProvider(window.ethereum)
+            const currentSigner = await browserProvider.getSigner()
+            setProvider(browserProvider)
+            setSigner(currentSigner)
+            setAccount(currentAccounts[0])
+          }
+        } catch (_) {
+          // ignore eager detection failures
+        }
+      })()
+
       window.ethereum.on("accountsChanged", (accounts: string[]) => {
         if (accounts.length === 0) {
           setAccount(null)
@@ -109,6 +130,7 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     account,
     chainId,
     isConnected,
+    isOnConflux,
     connectWallet,
     switchToConflux,
     loading,
