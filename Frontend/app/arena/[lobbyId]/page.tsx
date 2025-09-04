@@ -1,621 +1,483 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams } from "next/navigation"
+import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
 import { useWeb3 } from "@/components/Web3Provider"
-import type { Quiz } from "@/types"
-import {
-  Users,
-  Clock,
-  Trophy,
-  CheckCircle,
-  XCircle,
-  Zap,
-  Shield,
-  Target,
-  Flame,
-  Star,
-  Crown,
-  Sword,
-  Heart,
-  Brain,
-  CloudLightning as Lightning,
+import { ethers } from "ethers"
+import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
+import { CONFLUX_TESTNET } from "@/lib/constants"
+import type { Lobby } from "@/types"
+import { 
+  Trophy, 
+  Users, 
+  Coins, 
+  Clock, 
+  Zap, 
+  Crown, 
+  Swords, 
+  Shield, 
+  ArrowLeft,
+  Loader2,
+  CheckCircle
 } from "lucide-react"
-
-interface LobbyData {
-  id: string
-  mode: string
-  entryFee: string
-  players: string[]
-  maxPlayers: number
-  isActive: boolean
-  gameStarted: boolean
-}
-
-interface PlayerStats {
-  address: string
-  health: number
-  streak: number
-  powerUps: string[]
-  score: number
-  rank: number
-}
+import QuizGame from "@/components/QuizGame"
 
 export default function LobbyPage() {
   const params = useParams()
-  const lobbyId = params.lobbyId as string
-  const { signer, account, isConnected } = useWeb3()
+  const router = useRouter()
+  const { signer, isConnected, isOnConflux, account } = useWeb3()
+  const [lobby, setLobby] = useState<Lobby | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [players, setPlayers] = useState<string[]>([])
+  const [isUserInLobby, setIsUserInLobby] = useState(false)
+  const [gameStarted, setGameStarted] = useState(false)
+  const [gameResults, setGameResults] = useState<any[]>([])
+  const [expiresInSec, setExpiresInSec] = useState<number | null>(null)
+  const [isExpired, setIsExpired] = useState(false)
+  const [pendingReturns, setPendingReturns] = useState<string | null>(null)
+  const [createdAtSec, setCreatedAtSec] = useState<number | null>(null)
+  const [expiresAtSec, setExpiresAtSec] = useState<number | null>(null)
+  const [lobbyTimeoutSec, setLobbyTimeoutSec] = useState<number | null>(null)
 
-  const [lobbyData, setLobbyData] = useState<LobbyData | null>(null)
-  const [gameState, setGameState] = useState<"waiting" | "playing" | "finished">("waiting")
-  const [countdown, setCountdown] = useState(10)
-  const [quiz, setQuiz] = useState<Quiz | null>(null)
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null)
-  const [timeLeft, setTimeLeft] = useState(30)
-  const [eliminatedPlayers, setEliminatedPlayers] = useState<string[]>([])
-  const [winner, setWinner] = useState<string | null>(null)
-  const [playerStats, setPlayerStats] = useState<PlayerStats[]>([])
-  const [currentStreak, setCurrentStreak] = useState(0)
-  const [powerUps, setPowerUps] = useState<string[]>([])
-  const [battleMode, setBattleMode] = useState<"elimination" | "survival" | "blitz">("elimination")
-  const [spectatorMode, setSpectatorMode] = useState(false)
-  const [chatMessages, setChatMessages] = useState<Array<{ player: string; message: string; timestamp: number }>>([])
+  const lobbyId = params.lobbyId as string
 
   useEffect(() => {
-    const fetchLobbyData = async () => {
+    const fetchLobbyDetails = async () => {
+      console.log("Lobby page loaded for lobbyId:", lobbyId)
+      console.log("isConnected:", isConnected, "isOnConflux:", isOnConflux, "account:", account)
+      
+      if (!isConnected || !isOnConflux) {
+        console.log("Not connected or wrong network, setting loading to false")
+        setLoading(false)
+        return
+      }
+
       try {
-        console.log("[v0] Fetching lobby data for lobby:", lobbyId)
+        const provider = new ethers.BrowserProvider(window.ethereum)
+        const contract = new ethers.Contract(
+          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+          QUIZ_CRAFT_ARENA_ABI,
+          provider
+        )
 
-        const mockLobbyData: LobbyData = {
-          id: lobbyId,
-          mode: "⚔️ Battle Royale",
-          entryFee: "5",
-          players: [
-            "0x742d35Cc6634C0532925a3b8D4C9db96590c4C87",
-            account || "0x8ba1f109551bD432803012645Hac136c22C177ec",
-            "0x2546BcD3c84621e976D8185a91A922aE77ECEc30",
-            "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
-          ],
-          maxPlayers: 8,
-          isActive: true,
-          gameStarted: false,
+        // Get lobby details
+        const lobbyData = await contract.lobbies(lobbyId)
+        const entryFeeCFX = ethers.formatEther(lobbyData.entryFee)
+        const status = Number(lobbyData.status)
+        const playerCount = Number(lobbyData.playerCount)
+        const maxPlayers = Number(lobbyData.maxPlayers)
+        
+        // Determine lobby status
+        let statusText = ""
+        if (status === 0) { // OPEN
+          statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
+        } else if (status === 1) { // FULL
+          statusText = "Full - Game starting"
+        } else if (status === 2) { // IN_PROGRESS
+          statusText = "Game in progress"
+        } else if (status === 3) { // COMPLETED
+          statusText = "Completed"
+        } else if (status === 4) { // CANCELLED
+          statusText = "Cancelled"
         }
 
-        setLobbyData(mockLobbyData)
-
-        const initialStats: PlayerStats[] = mockLobbyData.players.map((player, index) => ({
-          address: player,
-          health: 100,
-          streak: 0,
-          powerUps: [],
-          score: 0,
-          rank: index + 1,
-        }))
-        setPlayerStats(initialStats)
-
-        if (mockLobbyData.players.length >= 2) {
-          console.log("[v0] Starting countdown with", mockLobbyData.players.length, "players")
-          startCountdown()
+        // Get players in lobby
+        const playersList = await contract.getPlayersInLobby(lobbyId)
+        
+        // Check if current user is in lobby
+        let userInLobby = false
+        if (account) {
+          userInLobby = await contract.isPlayerInLobby(lobbyId, account)
+          console.log("User in lobby check:", { lobbyId, account, userInLobby })
         }
+
+        const lobbyInfo: Lobby = {
+          id: String(lobbyData.id),
+          name: lobbyData.name,
+          category: lobbyData.category,
+          mode: `🎯 ${lobbyData.name}`,
+          entryFee: entryFeeCFX,
+          currentPlayers: playerCount,
+          maxPlayers: maxPlayers,
+          isActive: status === 0 && playerCount < maxPlayers,
+          creator: lobbyData.creator,
+          status: statusText,
+          isUserInLobby: userInLobby,
+        }
+
+        setLobby(lobbyInfo)
+        setPlayers(playersList)
+        setIsUserInLobby(userInLobby)
+        
+        // Compute expiry based on createdAt + LOBBY_TIMEOUT for OPEN/FULL
+        try {
+          const createdAt: bigint = lobbyData.createdAt
+          const statusEnum: number = Number(lobbyData.status)
+          const LOBBY_TIMEOUT: bigint = await contract.LOBBY_TIMEOUT()
+          if (statusEnum === 0 || statusEnum === 1) {
+            const nowSec = Math.floor(Date.now() / 1000)
+            const expiresAt = Number(createdAt + LOBBY_TIMEOUT)
+            const remain = Math.max(0, expiresAt - nowSec)
+            setExpiresInSec(remain)
+            setIsExpired(remain === 0)
+            setCreatedAtSec(Number(createdAt))
+            setExpiresAtSec(expiresAt)
+            setLobbyTimeoutSec(Number(LOBBY_TIMEOUT))
+          } else {
+            setExpiresInSec(null)
+            setIsExpired(false)
+            setCreatedAtSec(null)
+            setExpiresAtSec(null)
+            setLobbyTimeoutSec(null)
+          }
+        } catch (e) {
+          // ignore expiry calculation errors
+        }
+        
+        // Auto-start game if lobby is full
+        if (playersList.length >= maxPlayers && !gameStarted) {
+          setGameStarted(true)
+        }
+
       } catch (error) {
-        console.error("Error fetching lobby data:", error)
+        console.error("Error fetching lobby details:", error)
+      } finally {
+        setLoading(false)
       }
     }
 
-    fetchLobbyData()
-  }, [lobbyId, account])
+    fetchLobbyDetails()
+  }, [lobbyId, isConnected, isOnConflux, account])
 
-  const startCountdown = () => {
-    console.log("[v0] Battle countdown initiated")
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer)
-          console.log("[v0] Countdown finished, starting game")
-          startGame()
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
+  // Tick countdown every second
+  useEffect(() => {
+    if (expiresInSec === null) return
+    if (expiresInSec <= 0) {
+      setIsExpired(true)
+      return
+    }
+    const t = setTimeout(() => setExpiresInSec((s) => (s ? s - 1 : 0)), 1000)
+    return () => clearTimeout(t)
+  }, [expiresInSec])
 
-  const startGame = async () => {
-    console.log("[v0] Starting battle game")
-    setGameState("playing")
-
+  const claimRefund = async () => {
+    if (!signer || !isUserInLobby) return
     try {
-      const response = await fetch("/api/generate-quiz", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category: "Mixed", difficulty: "hard" }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-
-      const quizData: Quiz = await response.json()
-      console.log("[v0] Quiz loaded with", quizData.questions.length, "questions")
-      setQuiz(quizData)
-      setTimeLeft(30)
-
-      startQuestionTimer()
-    } catch (error) {
-      console.error("Error starting game:", error)
-      const fallbackQuiz: Quiz = {
-        id: "fallback",
-        category: "Mixed",
-        questions: [
-          {
-            id: "1",
-            question: "What blockchain does QuizCraft AI run on?",
-            options: ["Ethereum", "Conflux", "Polygon", "Binance Smart Chain"],
-            correctAnswer: 1,
-            timeLimit: 30,
-          },
-        ],
-      }
-      setQuiz(fallbackQuiz)
-      setTimeLeft(30)
-      startQuestionTimer()
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+        QUIZ_CRAFT_ARENA_ABI,
+        signer
+      )
+      const tx = await contract.claimRefund(lobbyId)
+      await tx.wait()
+      alert('Refund claimed. You can withdraw now.')
+    } catch (e: any) {
+      console.error('claimRefund error', e)
+      alert(e?.message || 'Failed to claim refund')
     }
   }
 
-  const startQuestionTimer = () => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer)
-          handleAnswer(-1)
-          return 0
-        }
-        return prev - 1
-      })
-    }, 1000)
-  }
-
-  const handleAnswer = (answerIndex: number) => {
-    if (!quiz || selectedAnswer !== null) return
-
-    setSelectedAnswer(answerIndex)
-    const currentQuestion = quiz.questions[currentQuestionIndex]
-    const isCorrect = answerIndex === currentQuestion.correctAnswer
-
-    if (isCorrect) {
-      setCurrentStreak((prev) => prev + 1)
-      if (currentStreak > 0 && currentStreak % 3 === 0) {
-        const newPowerUp = ["⚡ Speed Boost", "🛡️ Shield", "🎯 Double Points", "🔥 Fire Strike"][
-          Math.floor(Math.random() * 4)
-        ]
-        setPowerUps((prev) => [...prev, newPowerUp])
-      }
-    } else {
-      setCurrentStreak(0)
-      if (account && !eliminatedPlayers.includes(account)) {
-        setEliminatedPlayers([...eliminatedPlayers, account])
-      }
-    }
-
-    setTimeout(() => {
-      if (currentQuestionIndex < quiz.questions.length - 1) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1)
-        setSelectedAnswer(null)
-        setTimeLeft(30)
-        startQuestionTimer()
-      } else {
-        finishGame()
-      }
-    }, 2000)
-  }
-
-  const finishGame = () => {
-    setGameState("finished")
-
-    const remainingPlayers = lobbyData?.players.filter((player) => !eliminatedPlayers.includes(player)) || []
-
-    if (remainingPlayers.length > 0) {
-      setWinner(remainingPlayers[0])
+  const withdrawRefund = async () => {
+    if (!signer) return
+    try {
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+        QUIZ_CRAFT_ARENA_ABI,
+        signer
+      )
+      const tx = await contract.withdrawRefund()
+      await tx.wait()
+      alert('Refund withdrawn to your wallet.')
+    } catch (e: any) {
+      console.error('withdrawRefund error', e)
+      alert(e?.message || 'Failed to withdraw refund')
     }
   }
 
-  const formatAddress = (address: string) => {
-    return `${address.slice(0, 6)}...${address.slice(-4)}`
+  // Read pending returns for current user
+  useEffect(() => {
+    const readPending = async () => {
+      try {
+        if (!account || !isOnConflux) return
+        const provider = new ethers.BrowserProvider(window.ethereum)
+        const contract = new ethers.Contract(
+          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+          QUIZ_CRAFT_ARENA_ABI,
+          provider
+        )
+        const amount: bigint = await contract.pendingReturns(account)
+        setPendingReturns(ethers.formatEther(amount))
+      } catch {
+        setPendingReturns(null)
+      }
+    }
+    readPending()
+  }, [account, isOnConflux, lobbyId])
+
+  const getLobbyIcon = (mode: string) => {
+    if (mode.includes("Duel")) return <Swords className="h-6 w-6" />
+    if (mode.includes("Royale")) return <Crown className="h-6 w-6" />
+    if (mode.includes("Quick")) return <Zap className="h-6 w-6" />
+    if (mode.includes("Championship")) return <Trophy className="h-6 w-6" />
+    return <Shield className="h-6 w-6" />
   }
 
-  if (!isConnected) {
+  if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="py-12 text-center">
-            <Shield className="h-16 w-16 text-purple-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-white mb-2">Access Denied</h2>
-            <p className="text-slate-400">Connect your wallet to enter the arena</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (!lobbyData) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-          <CardContent className="py-12 text-center">
-            <div className="relative">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-purple-500/20 border-t-purple-400 mx-auto mb-4"></div>
-              <Lightning className="h-6 w-6 text-purple-400 absolute top-5 left-1/2 transform -translate-x-1/2" />
-            </div>
-            <p className="text-white font-medium">Entering the Arena...</p>
-            <p className="text-slate-400 text-sm mt-1">Preparing battle systems</p>
-          </CardContent>
-        </Card>
-      </div>
-    )
-  }
-
-  if (gameState === "waiting") {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+      <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-8">
-            <div className="relative inline-block">
-              <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-orange-400 bg-clip-text text-transparent mb-2">
-                BATTLE ARENA
-              </h1>
-              <div className="absolute -top-2 -right-2">
-                <Flame className="h-8 w-8 text-orange-400 animate-pulse" />
-              </div>
-            </div>
-            <p className="text-slate-300 text-lg">Lobby #{lobbyId}</p>
-          </div>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card className="border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-3 text-white">
-                  <div className="p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg">
-                    <Sword className="h-6 w-6" />
-                  </div>
-                  Battle Configuration
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-                  <span className="text-slate-300">Game Mode:</span>
-                  <Badge className="bg-gradient-to-r from-purple-500 to-pink-500 text-white border-0">
-                    {lobbyData.mode}
-                  </Badge>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-                  <span className="text-slate-300">Entry Stake:</span>
-                  <div className="flex items-center gap-2">
-                    <Trophy className="h-4 w-4 text-yellow-400" />
-                    <Badge variant="outline" className="border-yellow-400 text-yellow-400">
-                      {lobbyData.entryFee} CFX
-                    </Badge>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
-                  <span className="text-slate-300">Prize Pool:</span>
-                  <div className="flex items-center gap-2">
-                    <Crown className="h-4 w-4 text-yellow-400" />
-                    <span className="text-yellow-400 font-bold">
-                      {(Number.parseFloat(lobbyData.entryFee) * lobbyData.players.length).toFixed(1)} CFX
-                    </span>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg border border-purple-500/20">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Brain className="h-4 w-4 text-purple-400" />
-                    <span className="text-purple-400 font-medium">Battle Rules</span>
-                  </div>
-                  <ul className="text-sm text-slate-300 space-y-1">
-                    <li>• Wrong answers eliminate players</li>
-                    <li>• Streak bonuses unlock power-ups</li>
-                    <li>• Last player standing wins all</li>
-                  </ul>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-3 text-white">
-                  <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
-                    <Users className="h-6 w-6" />
-                  </div>
-                  Warriors ({lobbyData.players.length}/{lobbyData.maxPlayers})
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {playerStats.map((player, index) => (
-                    <div key={player.address} className="relative">
-                      <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/50 hover:border-purple-500/30 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="relative">
-                            <div
-                              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
-                                player.address === account
-                                  ? "bg-gradient-to-r from-purple-500 to-pink-500 text-white"
-                                  : "bg-slate-700 text-slate-300"
-                              }`}
-                            >
-                              {index + 1}
-                            </div>
-                            {player.address === account && (
-                              <Crown className="h-4 w-4 text-yellow-400 absolute -top-1 -right-1" />
-                            )}
-                          </div>
-                          <div>
-                            <div className="font-medium text-white">
-                              {player.address === account ? "You" : `Player ${index + 1}`}
-                            </div>
-                            <div className="text-xs text-slate-400">
-                              {player.address.slice(0, 6)}...{player.address.slice(-4)}
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1">
-                            <Heart className="h-4 w-4 text-red-400" />
-                            <span className="text-sm text-slate-300">{player.health}</span>
-                          </div>
-                          <Badge variant="outline" className="border-slate-600 text-slate-300">
-                            Ready
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  {Array.from({ length: lobbyData.maxPlayers - lobbyData.players.length }).map((_, index) => (
-                    <div
-                      key={`empty-${index}`}
-                      className="flex items-center justify-between p-4 bg-slate-800/20 rounded-lg border border-dashed border-slate-600"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-slate-700/50 flex items-center justify-center">
-                          <Users className="h-4 w-4 text-slate-500" />
-                        </div>
-                        <span className="text-slate-500">Waiting for warrior...</span>
-                      </div>
-                      <div className="animate-pulse">
-                        <div className="w-16 h-6 bg-slate-700/50 rounded"></div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="mt-8">
-            <Card className="border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-              <CardContent className="py-8">
-                {lobbyData.players.length >= 2 ? (
-                  <div className="text-center">
-                    <div className="relative mb-6">
-                      <div className="text-8xl font-bold bg-gradient-to-r from-red-400 via-yellow-400 to-orange-400 bg-clip-text text-transparent animate-pulse">
-                        {countdown}
-                      </div>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-32 h-32 border-4 border-orange-400/20 rounded-full animate-ping"></div>
-                      </div>
-                    </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">BATTLE COMMENCING</h2>
-                    <p className="text-slate-400">Prepare for intellectual warfare...</p>
-
-                    <div className="flex justify-center gap-4 mt-6">
-                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg">
-                        <Zap className="h-4 w-4 text-yellow-400" />
-                        <span className="text-sm text-slate-300">Power-ups Active</span>
-                      </div>
-                      <div className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 rounded-lg">
-                        <Target className="h-4 w-4 text-red-400" />
-                        <span className="text-sm text-slate-300">Elimination Mode</span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <div className="relative mb-6">
-                      <Clock className="h-16 w-16 text-purple-400 mx-auto animate-bounce" />
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="w-20 h-20 border-2 border-purple-400/20 rounded-full animate-pulse"></div>
-                      </div>
-                    </div>
-                    <h2 className="text-2xl font-bold text-white mb-2">Assembling Warriors</h2>
-                    <p className="text-slate-400 mb-4">
-                      Need {2 - lobbyData.players.length} more brave souls to start the battle
-                    </p>
-
-                    <div className="max-w-md mx-auto">
-                      <Progress value={(lobbyData.players.length / 2) * 100} className="h-3 bg-slate-800" />
-                      <p className="text-xs text-slate-500 mt-2">{lobbyData.players.length}/2 minimum players</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+          <div className="flex items-center justify-center h-64">
+            <Loader2 className="h-8 w-8 animate-spin" />
+            <span className="ml-2">Loading lobby...</span>
           </div>
         </div>
       </div>
     )
   }
 
-  if (gameState === "finished") {
+  if (!lobby) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
-        <Card className="max-w-2xl w-full border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-          <CardHeader>
-            <CardTitle className="text-center text-white text-2xl">⚔️ BATTLE CONCLUDED ⚔️</CardTitle>
-          </CardHeader>
-          <CardContent className="text-center space-y-6">
-            {winner === account ? (
-              <div>
-                <div className="relative mb-6">
-                  <Trophy className="h-24 w-24 text-yellow-400 mx-auto animate-bounce" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-32 h-32 border-4 border-yellow-400/20 rounded-full animate-ping"></div>
-                  </div>
-                </div>
-                <h2 className="text-4xl font-bold bg-gradient-to-r from-yellow-400 to-orange-400 bg-clip-text text-transparent mb-4">
-                  VICTORY ROYALE!
-                </h2>
-                <div className="p-6 bg-gradient-to-r from-yellow-500/10 to-orange-500/10 rounded-lg border border-yellow-500/20">
-                  <p className="text-white text-lg mb-2">🏆 Champion's Reward</p>
-                  <p className="text-2xl font-bold text-yellow-400">
-                    {(Number.parseFloat(lobbyData.entryFee) * lobbyData.players.length).toFixed(2)} CFX
-                  </p>
-                  <p className="text-slate-400 text-sm mt-2">+ Exclusive Victory NFT</p>
-                </div>
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <Card className="border-2 border-red-500/20 bg-red-900/10">
+            <CardContent className="py-16">
+              <div className="w-20 h-20 bg-red-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Shield className="h-10 w-10 text-red-500" />
               </div>
-            ) : (
-              <div>
-                <div className="text-6xl mb-4">💀</div>
-                <h2 className="text-3xl font-bold text-red-400 mb-4">ELIMINATED</h2>
-                <div className="p-4 bg-slate-800/50 rounded-lg">
-                  <p className="text-slate-300 mb-2">Champion:</p>
-                  <p className="text-yellow-400 font-bold">
-                    {winner ? `${winner.slice(0, 6)}...${winner.slice(-4)}` : "Unknown Warrior"}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="flex gap-4 justify-center">
+              <h2 className="font-montserrat font-bold text-3xl mb-4 text-red-400">Lobby Not Found</h2>
+              <p className="text-xl text-muted-foreground mb-8">
+                The lobby you're looking for doesn't exist or you don't have access to it.
+              </p>
               <Button
-                onClick={() => (window.location.href = "/arena")}
+                onClick={() => router.push("/arena")}
                 size="lg"
-                className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600"
+                className="bg-red-600 hover:bg-red-700 text-white font-semibold"
               >
-                <Sword className="h-4 w-4 mr-2" />
-                Return to Arena
+                <ArrowLeft className="mr-3 h-5 w-5" />
+                Back to Arena
               </Button>
-              <Button
-                variant="outline"
-                size="lg"
-                className="border-slate-600 text-slate-300 hover:bg-slate-800 bg-transparent"
-              >
-                <Star className="h-4 w-4 mr-2" />
-                View Stats
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     )
   }
 
-  if (!quiz) return null
-
-  const currentQuestion = quiz.questions[currentQuestionIndex]
-  const progress = ((currentQuestionIndex + 1) / quiz.questions.length) * 100
+  if (!isUserInLobby) {
+    return (
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto text-center">
+          <Card className="border-2 border-yellow-500/20 bg-yellow-900/10">
+            <CardContent className="py-16">
+              <div className="w-20 h-20 bg-yellow-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Shield className="h-10 w-10 text-yellow-500" />
+              </div>
+              <h2 className="font-montserrat font-bold text-3xl mb-4 text-yellow-400">Access Denied</h2>
+              <p className="text-xl text-muted-foreground mb-8">
+                You are not a member of this lobby. Please join the lobby from the arena first.
+              </p>
+              <Button
+                onClick={() => router.push("/arena")}
+                size="lg"
+                className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold"
+              >
+                <ArrowLeft className="mr-3 h-5 w-5" />
+                Back to Arena
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+    <div className="container mx-auto px-4 py-8">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6">
-          <Card className="border-purple-500/20 bg-slate-900/50 backdrop-blur-xl">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Brain className="h-5 w-5 text-purple-400" />
-                    <span className="text-white font-medium">
-                      Question {currentQuestionIndex + 1}/{quiz.questions.length}
-                    </span>
-                  </div>
-                  {currentStreak > 0 && (
-                    <div className="flex items-center gap-2 px-3 py-1 bg-gradient-to-r from-orange-500/20 to-red-500/20 rounded-full border border-orange-500/30">
-                      <Flame className="h-4 w-4 text-orange-400" />
-                      <span className="text-orange-400 font-bold">{currentStreak}x Streak</span>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <Button
+            onClick={() => router.push("/arena")}
+            variant="outline"
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to Arena
+          </Button>
+          <div className="text-right">
+            <h1 className="text-2xl font-bold">Lobby #{lobbyId}</h1>
+            <p className="text-muted-foreground">{lobby.status}</p>
+          </div>
+        </div>
+
+        {/* Lobby Info */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              {getLobbyIcon(lobby.mode)}
+              {lobby.mode}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="flex items-center gap-3">
+                <Coins className="h-5 w-5 text-yellow-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Entry Fee</p>
+                  <p className="font-semibold">{lobby.entryFee} CFX</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Users className="h-5 w-5 text-blue-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Players</p>
+                  <p className="font-semibold">{lobby.currentPlayers}/{lobby.maxPlayers}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Trophy className="h-5 w-5 text-purple-500" />
+                <div>
+                  <p className="text-sm text-muted-foreground">Prize Pool</p>
+                  <p className="font-semibold">{(Number.parseFloat(lobby.entryFee) * lobby.maxPlayers).toFixed(1)} CFX</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Quiz Game */}
+        {gameStarted && !isExpired ? (
+          <QuizGame
+            lobbyId={lobbyId}
+            players={players}
+            category={lobby.category}
+            onGameEnd={(results) => {
+              setGameResults(results)
+              console.log("Game ended with results:", results)
+            }}
+          />
+        ) : (
+          <Card className="mb-8">
+            <CardContent className="p-8 text-center">
+              <div className="flex items-center justify-center gap-3 mb-4">
+                <Users className="h-8 w-8 text-blue-500" />
+                <span className="text-xl font-semibold">
+                  {players.length} / {lobby.maxPlayers} Players Joined
+                </span>
+              </div>
+              {expiresInSec !== null && (
+                <div className="text-sm text-muted-foreground mb-2">
+                  {isExpired ? (
+                    <span className="text-red-600 font-semibold">Lobby expired</span>
+                  ) : (
+                    <>Expires in {Math.floor((expiresInSec || 0) / 60)}m {(expiresInSec || 0) % 60}s</>
+                  )}
+                  {isExpired && (
+                    <div className="mt-1 text-xs text-muted-foreground">
+                      {createdAtSec !== null && (
+                        <div>Created: {new Date(createdAtSec * 1000).toLocaleString()}</div>
+                      )}
+                      {expiresAtSec !== null && (
+                        <div>Expired: {new Date(expiresAtSec * 1000).toLocaleString()}</div>
+                      )}
+                      {lobbyTimeoutSec !== null && (
+                        <div>Timeout Window: {Math.floor(lobbyTimeoutSec / 60)} minutes</div>
+                      )}
                     </div>
                   )}
                 </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-lg">
-                    <Clock className="h-4 w-4 text-blue-400" />
-                    <span className={`font-bold ${timeLeft <= 10 ? "text-red-400 animate-pulse" : "text-blue-400"}`}>
-                      {timeLeft}s
-                    </span>
-                  </div>
-                  <Badge className="bg-gradient-to-r from-green-500 to-emerald-500 text-white border-0">
-                    {lobbyData.players.length - eliminatedPlayers.length} alive
-                  </Badge>
+              )}
+              {players.length >= lobby.maxPlayers ? (
+                <div className="text-green-600 font-semibold">
+                  <CheckCircle className="h-6 w-6 inline mr-2" />
+                  All players have joined! The game will start soon.
                 </div>
-              </div>
-
-              <Progress value={progress} className="h-2 bg-slate-800" />
-
-              {powerUps.length > 0 && (
-                <div className="flex items-center gap-2 mt-3">
-                  <span className="text-sm text-slate-400">Power-ups:</span>
-                  {powerUps.map((powerUp, index) => (
-                    <Badge key={index} variant="outline" className="border-yellow-400 text-yellow-400 text-xs">
-                      {powerUp}
-                    </Badge>
-                  ))}
+              ) : (
+                <p className="text-muted-foreground">
+                  Waiting for {lobby.maxPlayers - players.length} more players to join...
+                </p>
+              )}
+              {isExpired && isUserInLobby && (
+                <div className="mt-4 flex gap-3 justify-center">
+                  <Button onClick={claimRefund} className="bg-red-600 hover:bg-red-700 text-white">Claim Refund</Button>
+                  {pendingReturns && Number(pendingReturns) > 0 && (
+                    <Button onClick={withdrawRefund} variant="outline">Withdraw ({Number(pendingReturns).toFixed(4)} CFX)</Button>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
-        </div>
+        )}
 
-        <Card className="border-purple-500/20 bg-slate-900/50 backdrop-blur-xl mb-6">
+        {/* Players List */}
+        <Card className="mb-8">
           <CardHeader>
-            <CardTitle className="text-xl text-white leading-relaxed">{currentQuestion.question}</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Players ({lobby.currentPlayers}/{lobby.maxPlayers})
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3">
-              {currentQuestion.options.map((option, index) => {
-                let buttonClass =
-                  "w-full justify-start text-left h-auto py-4 px-6 border-slate-600 bg-slate-800/30 hover:bg-slate-700/50 text-white transition-all duration-200"
-                let icon = null
-
-                if (selectedAnswer !== null) {
-                  if (index === currentQuestion.correctAnswer) {
-                    buttonClass =
-                      "w-full justify-start text-left h-auto py-4 px-6 bg-gradient-to-r from-green-500 to-emerald-500 text-white border-green-400"
-                    icon = <CheckCircle className="h-5 w-5 text-white" />
-                  } else if (index === selectedAnswer) {
-                    buttonClass =
-                      "w-full justify-start text-left h-auto py-4 px-6 bg-gradient-to-r from-red-500 to-red-600 text-white border-red-400"
-                    icon = <XCircle className="h-5 w-5 text-white" />
-                  } else {
-                    buttonClass += " opacity-50"
-                  }
-                } else {
-                  buttonClass += " hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/20"
-                }
-
-                return (
-                  <Button
-                    key={index}
-                    className={buttonClass}
-                    onClick={() => handleAnswer(index)}
-                    disabled={selectedAnswer !== null}
-                  >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="text-base">{option}</span>
-                      {icon}
+            <div className="space-y-3">
+              {players.map((player, index) => (
+                <div
+                  key={player}
+                  className={`flex items-center justify-between p-3 rounded-lg border ${
+                    player.toLowerCase() === account?.toLowerCase()
+                      ? "bg-green-50 border-green-200"
+                      : "bg-muted/20"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      {index + 1}
                     </div>
-                  </Button>
-                )
-              })}
+                    <div>
+                      <p className="font-medium">
+                        {player.toLowerCase() === account?.toLowerCase() ? "You" : `${player.slice(0, 6)}...${player.slice(-4)}`}
+                      </p>
+                      <p className="text-sm text-muted-foreground">{player}</p>
+                    </div>
+                  </div>
+                  {player.toLowerCase() === account?.toLowerCase() && (
+                    <Badge variant="default" className="bg-green-500">
+                      <CheckCircle className="h-3 w-3 mr-1" />
+                      You
+                    </Badge>
+                  )}
+                </div>
+              ))}
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Status Message */}
+        <Card>
+          <CardContent className="py-8 text-center">
+            {lobby.currentPlayers < lobby.maxPlayers ? (
+              <div>
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Clock className="h-8 w-8 text-blue-500" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Waiting for Players</h3>
+                <p className="text-muted-foreground">
+                  {lobby.maxPlayers - lobby.currentPlayers} more player(s) needed to start the game.
+                </p>
+              </div>
+            ) : (
+              <div>
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CheckCircle className="h-8 w-8 text-green-500" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Lobby Full</h3>
+                <p className="text-muted-foreground">
+                  All players have joined! The game will start soon.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
