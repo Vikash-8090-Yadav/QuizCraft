@@ -21,11 +21,16 @@ export interface LeaderboardEntry {
 
 export interface Lobby {
   id: string
+  name: string
+  category: string
   mode: string
   entryFee: string
   currentPlayers: number
   maxPlayers: number
   isActive: boolean
+  creator?: string
+  status?: string
+  isUserInLobby?: boolean
 }
 
 export interface NFTMetadata {
@@ -45,6 +50,7 @@ export interface Web3ContextType {
   account: string | null
   chainId: number | null
   isConnected: boolean
+  isOnConflux: boolean
   connectWallet: () => Promise<void>
   switchToConflux: () => Promise<void>
   loading: boolean
