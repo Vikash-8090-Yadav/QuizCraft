@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
       difficulty = "medium",
       questionCount = 1,
       timePerQuestion = 30,
+      seed,
     } = await request.json()
 
     // Compose a prompt for Perplexity
@@ -110,9 +111,29 @@ Return a JSON array of 10 objects, each with this schema:
     let questions = toQuestions(parsed)
 
     // Shuffle options and re-index correctAnswer to avoid positional bias
+    // Seeded RNG if seed provided (xorshift32)
+    const rngFactory = (s?: string) => {
+      if (!s) return () => Math.random()
+      let h = 2166136261 >>> 0
+      for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i)
+        h = Math.imul(h, 16777619)
+      }
+      let x = h || 123456789
+      return () => {
+        // xorshift
+        x ^= x << 13
+        x ^= x >>> 17
+        x ^= x << 5
+        // map to [0,1)
+        return ((x >>> 0) % 1_000_000) / 1_000_000
+      }
+    }
+    const rand = rngFactory(seed)
+
     const shuffle = <T,>(arr: T[]): T[] => {
       for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1))
+        const j = Math.floor(rand() * (i + 1))
         const tmp = arr[i]
         arr[i] = arr[j]
         arr[j] = tmp
@@ -163,17 +184,20 @@ Return a JSON array of 10 objects, each with this schema:
           { question: `${topic}: Which framework is for React routing?`, options: ["Vuex", "Next.js", "Laravel", "Django"], correctAnswer: 1, explanation: 'Next.js is a React framework that includes routing.' },
         ]
         const result: Array<{ id: string; question: string; options: string[]; correctAnswer: number; timeLimit: number; explanation: string }> = []
-        for (let i = 0; i < Math.min(count, bank.length); i++) {
-          const item = bank[i]
+        // Deterministic selection order if seeded
+        const order = [...bank.keys()]
+        const ordered = seed ? shuffle(order) : order
+        for (let idx = 0; idx < Math.min(count, ordered.length); idx++) {
+          const item = bank[ordered[idx]]
           // Shuffle local options too and rotate correct index
           const opts = [...item.options]
           for (let s = opts.length - 1; s > 0; s--) {
-            const j = Math.floor(Math.random() * (s + 1))
+            const j = Math.floor(rand() * (s + 1))
             const t = opts[s]; opts[s] = opts[j]; opts[j] = t
           }
           const newCorrect = Math.max(0, opts.findIndex(o => o === item.options[item.correctAnswer]))
           result.push({
-            id: Math.random().toString(36).slice(2),
+            id: (seed ? `${seed}-${idx}` : Math.random().toString(36).slice(2)),
             question: item.question,
             options: opts,
             correctAnswer: newCorrect,
