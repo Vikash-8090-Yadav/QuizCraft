@@ -41,6 +41,11 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     // Mappings for data storage
     mapping(uint256 => Lobby) public lobbies;
     mapping(address => uint256) public pendingReturns; // For user withdrawals
+    
+    // Score tracking
+    mapping(uint256 => mapping(address => uint256)) public playerScores; // lobbyId => player => score
+    mapping(uint256 => address[]) public lobbyLeaderboard; // lobbyId => ranked players
+    mapping(uint256 => bool) public leaderboardSet; // lobbyId => whether leaderboard is set
 
     uint256 public nextLobbyId; // Counter for lobby IDs
 
@@ -52,6 +57,8 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     event RefundClaimed(address player, uint256 amount);
     event GameMasterUpdated(address newGameMaster);
     event FeeUpdated(uint256 newFeeBps);
+    event ScoresSubmitted(uint256 indexed lobbyId, address[] players, uint256[] scores);
+    event LeaderboardSet(uint256 indexed lobbyId, address[] leaderboard);
 
     // ===== MODIFIERS =====
     modifier onlyGameMaster() {
@@ -141,6 +148,52 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     }
 
     /**
+     * @dev Called by the GameMaster to submit player scores for a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @param _players Array of player addresses.
+     * @param _scores Array of corresponding scores.
+     */
+    function submitScores(uint256 _lobbyId, address[] memory _players, uint256[] memory _scores) external onlyGameMaster validLobby(_lobbyId) {
+        Lobby storage lobby = lobbies[_lobbyId];
+        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for scores");
+        require(_players.length == _scores.length, "Players and scores arrays length mismatch");
+        require(_players.length == lobby.players.length, "Must submit scores for all players");
+
+        // Verify all players are in the lobby
+        for (uint256 i = 0; i < _players.length; i++) {
+            require(isPlayerInLobby(_lobbyId, _players[i]), "Player not in lobby");
+        }
+
+        // Store scores
+        for (uint256 i = 0; i < _players.length; i++) {
+            playerScores[_lobbyId][_players[i]] = _scores[i];
+        }
+
+        emit ScoresSubmitted(_lobbyId, _players, _scores);
+    }
+
+    /**
+     * @dev Called by the GameMaster to set the leaderboard for a lobby (ranked by score).
+     * @param _lobbyId The ID of the lobby.
+     * @param _leaderboard Array of player addresses ranked by score (highest to lowest).
+     */
+    function setLeaderboard(uint256 _lobbyId, address[] memory _leaderboard) external onlyGameMaster validLobby(_lobbyId) {
+        Lobby storage lobby = lobbies[_lobbyId];
+        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for leaderboard");
+        require(_leaderboard.length == lobby.players.length, "Leaderboard must include all players");
+
+        // Verify all players are in the lobby
+        for (uint256 i = 0; i < _leaderboard.length; i++) {
+            require(isPlayerInLobby(_lobbyId, _leaderboard[i]), "Player not in lobby");
+        }
+
+        lobbyLeaderboard[_lobbyId] = _leaderboard;
+        leaderboardSet[_lobbyId] = true;
+
+        emit LeaderboardSet(_lobbyId, _leaderboard);
+    }
+
+    /**
      * @dev Called by the GameMaster to resolve a completed game and distribute the prize.
      * @param _lobbyId The ID of the lobby to resolve.
      * @param _winner The address of the winning player.
@@ -224,6 +277,51 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
      */
     function getPlayersInLobby(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
         return lobbies[_lobbyId].players;
+    }
+
+    /**
+     * @dev Gets the score of a specific player in a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @param _player The address of the player.
+     * @return The player's score.
+     */
+    function getPlayerScore(uint256 _lobbyId, address _player) external view validLobby(_lobbyId) returns (uint256) {
+        return playerScores[_lobbyId][_player];
+    }
+
+    /**
+     * @dev Gets the leaderboard for a lobby (ranked players).
+     * @param _lobbyId The ID of the lobby.
+     * @return An array of player addresses ranked by score (highest to lowest).
+     */
+    function getLeaderboard(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
+        return lobbyLeaderboard[_lobbyId];
+    }
+
+    /**
+     * @dev Gets all player scores for a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @return players Array of player addresses.
+     * @return scores Array of corresponding scores.
+     */
+    function getAllScores(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory players, uint256[] memory scores) {
+        Lobby storage lobby = lobbies[_lobbyId];
+        players = new address[](lobby.players.length);
+        scores = new uint256[](lobby.players.length);
+        
+        for (uint256 i = 0; i < lobby.players.length; i++) {
+            players[i] = lobby.players[i];
+            scores[i] = playerScores[_lobbyId][lobby.players[i]];
+        }
+    }
+
+    /**
+     * @dev Checks if a leaderboard has been set for a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @return True if leaderboard is set, false otherwise.
+     */
+    function isLeaderboardSet(uint256 _lobbyId) external view validLobby(_lobbyId) returns (bool) {
+        return leaderboardSet[_lobbyId];
     }
 
     // ===== ADMIN FUNCTIONS =====
