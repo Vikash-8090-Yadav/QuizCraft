@@ -23,6 +23,10 @@ interface QuizGameProps {
   players: string[];
   category?: string;
   onGameEnd: (results: GameResult[]) => void;
+  onScoreUpdate?: (scores: Record<string, number>) => void;
+  startTimestampSec: number; // on-chain createdAt + countdown
+  questionDurationSec: number; // per-question duration
+  seed: string; // deterministic quiz seed
 }
 
 interface GameResult {
@@ -33,13 +37,13 @@ interface GameResult {
   timeBonus: number;
 }
 
-export default function QuizGame({ lobbyId, players, category, onGameEnd }: QuizGameProps) {
+export default function QuizGame({ lobbyId, players, category, onGameEnd, onScoreUpdate, startTimestampSec, questionDurationSec, seed }: QuizGameProps) {
   const [gameState, setGameState] = useState<'waiting' | 'countdown' | 'playing' | 'finished'>('waiting');
   const [countdown, setCountdown] = useState(10);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [timeLeft, setTimeLeft] = useState(30);
+  const [timeLeft, setTimeLeft] = useState(questionDurationSec);
   const [playerScores, setPlayerScores] = useState<Record<string, number>>({});
   const [showExplanation, setShowExplanation] = useState(false);
   const [gameResults, setGameResults] = useState<GameResult[]>([]);
@@ -47,38 +51,60 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
   const [quizStartedAt, setQuizStartedAt] = useState<number | null>(null);
   const [quizEndedAt, setQuizEndedAt] = useState<number | null>(null);
 
-  // Initialize game
+  // Hydrate persisted scores
   useEffect(() => {
-    if (players.length >= 2) {
-      startGame();
-    }
-  }, [players.length]);
+    try {
+      const raw = sessionStorage.getItem(`quizcraft:scores:${lobbyId}`)
+      if (raw) setPlayerScores(JSON.parse(raw))
+    } catch {}
+  }, [lobbyId])
 
-  // Countdown timer
+  // Persist scores
   useEffect(() => {
-    if (gameState === 'countdown' && countdown > 0) {
-      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (gameState === 'countdown' && countdown === 0) {
-      setGameState('playing');
-      generateQuiz();
-    }
-  }, [gameState, countdown]);
+    try {
+      sessionStorage.setItem(`quizcraft:scores:${lobbyId}`, JSON.stringify(playerScores))
+    } catch {}
+  }, [lobbyId, playerScores])
 
-  // Question timer
+  // Initialize game phase based on startTimestampSec
   useEffect(() => {
-    if (gameState === 'playing' && timeLeft > 0) {
-      const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
-      return () => clearTimeout(timer);
-    } else if (gameState === 'playing' && timeLeft === 0) {
-      handleTimeUp();
+    const tick = () => {
+      const nowSec = Math.floor(Date.now() / 1000)
+      if (questions.length === 0) {
+        // lazily generate quiz once
+        generateQuiz()
+      }
+      if (nowSec < startTimestampSec) {
+        setGameState('countdown')
+        setCountdown(Math.max(0, startTimestampSec - nowSec))
+      } else if (questions.length > 0) {
+        const elapsed = nowSec - startTimestampSec
+        const qIndex = Math.floor(elapsed / questionDurationSec)
+        if (qIndex >= questions.length) {
+          if (gameState !== 'finished') endGame()
+          return
+        }
+        setGameState('playing')
+        setCurrentQuestion(qIndex)
+        const rem = questionDurationSec - (elapsed % questionDurationSec)
+        setTimeLeft(rem)
+      }
     }
-  }, [gameState, timeLeft]);
+    const i = setInterval(tick, 1000)
+    tick()
+    return () => clearInterval(i)
+  }, [startTimestampSec, questionDurationSec, questions.length])
+
+  // Emit live score reset at game start
+  useEffect(() => {
+    if (gameState === 'playing' && onScoreUpdate) onScoreUpdate(playerScores)
+  }, [gameState])
+
+  // timeLeft derived by main tick; no separate timer needed
 
   const startGame = () => {
     setGameState('countdown');
-    setCountdown(10);
-    setQuizStartedAt(Date.now());
+    setQuizStartedAt(startTimestampSec * 1000);
   };
 
   const generateQuiz = async () => {
@@ -89,7 +115,9 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
         body: JSON.stringify({
           category: category || 'Technology',
           difficulty: 'medium',
-          questionCount: 10
+          questionCount: 10,
+          timePerQuestion: questionDurationSec,
+          seed,
         })
       });
       if (!response.ok) {
@@ -100,7 +128,9 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
           body: JSON.stringify({
             category: category || 'Technology',
             difficulty: 'medium',
-            questionCount: 10
+            questionCount: 10,
+            timePerQuestion: questionDurationSec,
+            seed,
           })
         });
       }
@@ -136,7 +166,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
         question: 'Placeholder question: Which letter comes first?',
         options: ['A', 'B', 'C', 'D'],
         correctAnswer: 0,
-        timeLimit: 30,
+        timeLimit: questionDurationSec,
       };
       setQuestions([placeholder]);
       setTimeLeft(placeholder.timeLimit);
@@ -163,41 +193,22 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
       const current = next[players[0]] || 0
       const newScore = Math.max(0, current + (isCorrect ? (100 + timeBonus) : -25))
       next[players[0]] = newScore
+      if (onScoreUpdate) onScoreUpdate(next)
       return next
     });
 
-    // Move to next question after 3 seconds
+    // Clear selection after a brief explanation window; advance handled by time-based tick
     setTimeout(() => {
-      if (currentQuestion < questions.length - 1) {
-        setCurrentQuestion(currentQuestion + 1);
-        setSelectedAnswer(null);
-        setShowExplanation(false);
-        setTimeLeft(30);
-      } else {
-        endGame();
-      }
-    }, 3000);
+      setSelectedAnswer(null);
+      setShowExplanation(false);
+    }, 2000);
   };
 
   const handleTimeUp = () => {
-    if (selectedAnswer === null) {
-      setSelectedAnswer(-1); // No answer selected
-      setShowExplanation(true);
-      
-      setTimeout(() => {
-        if (currentQuestion < questions.length - 1) {
-          setCurrentQuestion(currentQuestion + 1);
-          setSelectedAnswer(null);
-          setShowExplanation(false);
-          setTimeLeft(30);
-        } else {
-          endGame();
-        }
-      }, 3000);
-    }
+    // no-op; advancement handled by wall-clock
   };
 
-  const endGame = () => {
+  const endGame = async () => {
     setGameState('finished');
     setQuizEndedAt(Date.now());
     
@@ -212,6 +223,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
     
     setGameResults(results);
     onGameEnd(results);
+    
     // Post score and time taken for the first player (demo)
     const totalMs = (Date.now() - (quizStartedAt || Date.now()));
     const timeTakenSeconds = Math.max(0, Math.round(totalMs / 1000));
@@ -224,6 +236,55 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd }: Quiz
         timeTakenSeconds,
       })
     }).catch(() => {});
+
+    // Submit scores to smart contract for leaderboard
+    try {
+      const playerAddresses = results.map(r => r.player);
+      const scores = results.map(r => r.score);
+      
+      const response = await fetch('/api/submit-scores', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
+        },
+        body: JSON.stringify({
+          lobbyId: lobbyId,
+          players: playerAddresses,
+          scores: scores
+        })
+      });
+
+      if (response.ok) {
+        console.log('Scores submitted to smart contract');
+        
+        // Set leaderboard (ranked by score)
+        const sortedResults = results.sort((a, b) => b.score - a.score);
+        const leaderboard = sortedResults.map(r => r.player);
+        
+        const leaderboardResponse = await fetch('/api/set-leaderboard', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
+          },
+          body: JSON.stringify({
+            lobbyId: lobbyId,
+            leaderboard: leaderboard
+          })
+        });
+
+        if (leaderboardResponse.ok) {
+          console.log('Leaderboard set in smart contract');
+        } else {
+          console.error('Failed to set leaderboard');
+        }
+      } else {
+        console.error('Failed to submit scores to smart contract');
+      }
+    } catch (error) {
+      console.error('Error submitting scores to smart contract:', error);
+    }
   };
 
   if (gameState === 'waiting') {
