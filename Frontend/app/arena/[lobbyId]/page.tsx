@@ -41,22 +41,30 @@ export default function LobbyPage() {
   const [createdAtSec, setCreatedAtSec] = useState<number | null>(null)
   const [expiresAtSec, setExpiresAtSec] = useState<number | null>(null)
   const [lobbyTimeoutSec, setLobbyTimeoutSec] = useState<number | null>(null)
+  const [gameFinished, setGameFinished] = useState(false)
+  const [winner, setWinner] = useState<string | null>(null)
+  const [claimingPrize, setClaimingPrize] = useState(false)
+  const [startingGame, setStartingGame] = useState(false)
+  const [contractScores, setContractScores] = useState<{address: string, score: number}[]>([])
+  const [contractLeaderboard, setContractLeaderboard] = useState<string[]>([])
+  const [isLeaderboardSet, setIsLeaderboardSet] = useState(false)
+  const [rawStatus, setRawStatus] = useState<number | null>(null)
+  const [prizeDistributedOnChain, setPrizeDistributedOnChain] = useState<boolean | null>(null)
 
   const lobbyId = params.lobbyId as string
+  const numericLobbyId = Number(lobbyId)
 
   useEffect(() => {
     const fetchLobbyDetails = async () => {
       console.log("Lobby page loaded for lobbyId:", lobbyId)
       console.log("isConnected:", isConnected, "isOnConflux:", isOnConflux, "account:", account)
-      
-      if (!isConnected || !isOnConflux) {
-        console.log("Not connected or wrong network, setting loading to false")
-        setLoading(false)
-        return
-      }
 
       try {
-        const provider = new ethers.BrowserProvider(window.ethereum)
+        // Use wallet provider if on the correct network; otherwise fall back to public RPC for read-only data
+        const provider = (typeof window !== 'undefined' && (window as any).ethereum && isOnConflux)
+          ? new ethers.BrowserProvider((window as any).ethereum)
+          : new ethers.JsonRpcProvider(CONFLUX_TESTNET.rpcUrl)
+
         const contract = new ethers.Contract(
           CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
           QUIZ_CRAFT_ARENA_ABI,
@@ -64,9 +72,10 @@ export default function LobbyPage() {
         )
 
         // Get lobby details
-        const lobbyData = await contract.lobbies(lobbyId)
+        const lobbyData = await contract.lobbies(numericLobbyId)
         const entryFeeCFX = ethers.formatEther(lobbyData.entryFee)
         const status = Number(lobbyData.status)
+        setRawStatus(status)
         const playerCount = Number(lobbyData.playerCount)
         const maxPlayers = Number(lobbyData.maxPlayers)
         
@@ -85,13 +94,13 @@ export default function LobbyPage() {
         }
 
         // Get players in lobby
-        const playersList = await contract.getPlayersInLobby(lobbyId)
+        const playersList = await contract.getPlayersInLobby(numericLobbyId)
         
         // Check if current user is in lobby
         let userInLobby = false
         if (account) {
-          userInLobby = await contract.isPlayerInLobby(lobbyId, account)
-          console.log("User in lobby check:", { lobbyId, account, userInLobby })
+          userInLobby = await contract.isPlayerInLobby(numericLobbyId, account)
+          console.log("User in lobby check:", { lobbyId: numericLobbyId, account, userInLobby })
         }
 
         const lobbyInfo: Lobby = {
@@ -111,35 +120,33 @@ export default function LobbyPage() {
         setLobby(lobbyInfo)
         setPlayers(playersList)
         setIsUserInLobby(userInLobby)
+        setPrizeDistributedOnChain(Boolean(lobbyData.prizeDistributed))
         
-        // Compute expiry based on createdAt + LOBBY_TIMEOUT for OPEN/FULL
+        // Compute timing details based on createdAt + LOBBY_TIMEOUT
         try {
           const createdAt: bigint = lobbyData.createdAt
-          const statusEnum: number = Number(lobbyData.status)
           const LOBBY_TIMEOUT: bigint = await contract.LOBBY_TIMEOUT()
-          if (statusEnum === 0 || statusEnum === 1) {
-            const nowSec = Math.floor(Date.now() / 1000)
-            const expiresAt = Number(createdAt + LOBBY_TIMEOUT)
-            const remain = Math.max(0, expiresAt - nowSec)
-            setExpiresInSec(remain)
-            setIsExpired(remain === 0)
-            setCreatedAtSec(Number(createdAt))
-            setExpiresAtSec(expiresAt)
-            setLobbyTimeoutSec(Number(LOBBY_TIMEOUT))
-          } else {
-            setExpiresInSec(null)
-            setIsExpired(false)
-            setCreatedAtSec(null)
-            setExpiresAtSec(null)
-            setLobbyTimeoutSec(null)
-          }
+          const nowSec = Math.floor(Date.now() / 1000)
+          const expiresAt = Number(createdAt + LOBBY_TIMEOUT)
+          const remain = Math.max(0, expiresAt - nowSec)
+          setExpiresInSec(remain)
+          setIsExpired(remain === 0)
+          setCreatedAtSec(Number(createdAt))
+          setExpiresAtSec(expiresAt)
+          setLobbyTimeoutSec(Number(LOBBY_TIMEOUT))
         } catch (e) {
-          // ignore expiry calculation errors
+          // ignore timing calculation errors
         }
         
-        // Auto-start game if lobby is full
-        if (playersList.length >= maxPlayers && !gameStarted) {
+        // Start game when lobby becomes FULL (contract does not set IN_PROGRESS status)
+        if (status === 1 && !gameStarted) { // FULL
           setGameStarted(true)
+        }
+
+        // Check if game is completed and get winner
+        if (status === 3) { // COMPLETED
+          setGameFinished(true)
+          setWinner(lobbyData.winner)
         }
 
       } catch (error) {
@@ -197,12 +204,62 @@ export default function LobbyPage() {
     }
   }
 
+  const claimPrize = async () => {
+    if (!signer || !winner || winner.toLowerCase() !== account?.toLowerCase()) return
+    setClaimingPrize(true)
+    try {
+      // Call the resolve-game API to trigger on-chain resolution
+      const response = await fetch('/api/resolve-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
+        },
+        body: JSON.stringify({
+          lobbyId: lobbyId,
+          winnerAddress: winner
+        })
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        alert(`Game resolved on-chain! Transaction: ${result.transactionHash}`)
+        // Refresh lobby data to show updated status
+        window.location.reload()
+      } else {
+        const error = await response.json()
+        alert(`Failed to resolve game: ${error.error}`)
+      }
+    } catch (e: any) {
+      console.error('claimPrize error', e)
+      alert(e?.message || 'Failed to claim prize')
+    } finally {
+      setClaimingPrize(false)
+    }
+  }
+
+  const startGame = async () => {
+    if (!signer || !isUserInLobby) return
+    setStartingGame(true)
+    try {
+      // For now, we'll just set the game as started locally
+      // In a full implementation, this would call a contract function to set status to IN_PROGRESS
+      setGameStarted(true)
+      alert('Game started! The quiz will begin shortly.')
+    } catch (e: any) {
+      console.error('startGame error', e)
+      alert(e?.message || 'Failed to start game')
+    } finally {
+      setStartingGame(false)
+    }
+  }
+
   // Read pending returns for current user
   useEffect(() => {
     const readPending = async () => {
       try {
         if (!account || !isOnConflux) return
-        const provider = new ethers.BrowserProvider(window.ethereum)
+        const provider = new ethers.BrowserProvider((window as any).ethereum)
         const contract = new ethers.Contract(
           CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
           QUIZ_CRAFT_ARENA_ABI,
@@ -217,12 +274,66 @@ export default function LobbyPage() {
     readPending()
   }, [account, isOnConflux, lobbyId])
 
+  // Fetch scores and leaderboard from smart contract
+  useEffect(() => {
+    const fetchContractData = async () => {
+      try {
+        if (!isOnConflux) return
+        const provider = new ethers.BrowserProvider((window as any).ethereum)
+        const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, provider)
+        
+        // Check if leaderboard is set and read it if present
+        const leaderboardSet = await contract.isLeaderboardSet(numericLobbyId)
+        setIsLeaderboardSet(leaderboardSet)
+        if (leaderboardSet) {
+          const leaderboard = await contract.getLeaderboard(numericLobbyId)
+          setContractLeaderboard(leaderboard)
+        }
+
+        // Always read all scores to display full participant list
+        const [players, scores] = await contract.getAllScores(numericLobbyId)
+        const scoresData = players.map((player: string, index: number) => ({
+          address: player,
+          score: Number(scores[index])
+        }))
+        setContractScores(scoresData)
+      } catch (e) {
+        console.error('Error fetching contract data:', e)
+      }
+    }
+    
+    fetchContractData()
+  }, [lobbyId, isOnConflux, gameFinished])
+
   const getLobbyIcon = (mode: string) => {
     if (mode.includes("Duel")) return <Swords className="h-6 w-6" />
     if (mode.includes("Royale")) return <Crown className="h-6 w-6" />
     if (mode.includes("Quick")) return <Zap className="h-6 w-6" />
     if (mode.includes("Championship")) return <Trophy className="h-6 w-6" />
     return <Shield className="h-6 w-6" />
+  }
+
+  const getStatusLabel = (statusNum: number | null) => {
+    if (statusNum === null) return 'Unknown'
+    switch (statusNum) {
+      case 0: return 'OPEN'
+      case 1: return 'FULL'
+      case 2: return 'IN_PROGRESS'
+      case 3: return 'COMPLETED'
+      case 4: return 'CANCELLED'
+      default: return 'Unknown'
+    }
+  }
+
+  const formatRelativeTime = (targetSeconds: number, isFuture: boolean) => {
+    const nowSec = Math.floor(Date.now() / 1000)
+    const delta = Math.max(0, Math.abs(targetSeconds - nowSec))
+    const minutes = Math.floor(delta / 60)
+    const seconds = delta % 60
+    if (minutes > 0) {
+      return isFuture ? `in ${minutes}m ${seconds}s` : `${minutes}m ${seconds}s ago`
+    }
+    return isFuture ? `in ${seconds}s` : `${seconds}s ago`
   }
 
   if (loading) {
@@ -309,7 +420,7 @@ export default function LobbyPage() {
           </Button>
           <div className="text-right">
             <h1 className="text-2xl font-bold">Lobby #{lobbyId}</h1>
-            <p className="text-muted-foreground">{lobby.status}</p>
+            <p className="text-muted-foreground">{lobby.status} ({getStatusLabel(rawStatus)})</p>
           </div>
         </div>
 
@@ -348,15 +459,185 @@ export default function LobbyPage() {
           </CardContent>
         </Card>
 
+        {/* Lobby Details */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5" />
+              Lobby Details
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Raw status from enum */}
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                  <Shield className="h-4 w-4 text-gray-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <p className="font-semibold">{getStatusLabel(rawStatus)}</p>
+                </div>
+              </div>
+              {createdAtSec !== null && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                    <Clock className="h-4 w-4 text-blue-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Created</p>
+                    <p className="font-semibold">{new Date(createdAtSec * 1000).toLocaleString()} <span className="text-xs text-muted-foreground">({formatRelativeTime(createdAtSec, false)})</span></p>
+                    {rawStatus === 1 && (
+                      <p className="text-xs text-muted-foreground">Timer reset when lobby became FULL</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {expiresAtSec !== null && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
+                    <Clock className="h-4 w-4 text-orange-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Expires</p>
+                    <p className="font-semibold">{new Date(expiresAtSec * 1000).toLocaleString()} <span className="text-xs text-muted-foreground">({formatRelativeTime(expiresAtSec, true)})</span></p>
+                  </div>
+                </div>
+              )}
+              {lobbyTimeoutSec !== null && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                    <Clock className="h-4 w-4 text-purple-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Timeout Window</p>
+                    <p className="font-semibold">{Math.floor(lobbyTimeoutSec / 60)} minutes</p>
+                  </div>
+                </div>
+              )}
+              {expiresInSec !== null && !isExpired && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                    <Clock className="h-4 w-4 text-green-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Time Remaining</p>
+                    <p className="font-semibold text-green-600">
+                      {Math.floor((expiresInSec || 0) / 60)}m {(expiresInSec || 0) % 60}s
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* Winner (if resolved) */}
+              {winner && (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <Trophy className="h-4 w-4 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Winner</p>
+                    <p className="font-semibold">{winner.slice(0, 6)}...{winner.slice(-4)}</p>
+                  </div>
+                </div>
+              )}
+              {/* Prize distribution status */
+              }
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                  <CheckCircle className="h-4 w-4 text-emerald-600" />
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Prize Distributed (on-chain)</p>
+                  <p className="font-semibold">{prizeDistributedOnChain ? 'Yes' : 'No'}</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Smart Contract Scores - full list with Top 3 highlighted */}
+        {contractScores.length > 0 && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="h-5 w-5 text-purple-500" />
+                Scores (On-Chain)
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                {isLeaderboardSet ? 'Leaderboard set by game master. Top 3 highlighted.' : 'Live on-chain scores. Top 3 highlighted.'}
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {contractScores
+                  .slice()
+                  .sort((a, b) => b.score - a.score)
+                  .map((player, index) => (
+                    <div key={player.address} className={`flex items-center justify-between p-3 rounded-lg border ${
+                      index === 0 ? 'bg-yellow-50 border-yellow-200' :
+                      index === 1 ? 'bg-gray-50 border-gray-200' :
+                      index === 2 ? 'bg-amber-50 border-amber-200' :
+                      'bg-muted/20'
+                    }`}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                          index === 0 ? 'bg-yellow-500 text-white' : 
+                          index === 1 ? 'bg-gray-400 text-white' : 
+                          index === 2 ? 'bg-amber-600 text-white' : 
+                          'bg-gray-200 text-gray-700'
+                        }`}>
+                          {index + 1}
+                        </div>
+                        <div>
+                          <p className="font-medium">{player.address.slice(0, 6)}...{player.address.slice(-4)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {index === 0 ? '🥇 Top 1' : 
+                             index === 1 ? '🥈 Top 2' : 
+                             index === 2 ? '🥉 Top 3' : 
+                             'Participant'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-bold text-lg">{player.score}</p>
+                        <p className="text-sm text-muted-foreground">points</p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quiz Game */}
         {gameStarted && !isExpired ? (
           <QuizGame
             lobbyId={lobbyId}
             players={players}
             category={lobby.category}
+            startTimestampSec={(createdAtSec || 0) + 10}
+            questionDurationSec={30}
+            seed={`${CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA}-${numericLobbyId}-${createdAtSec || 0}`}
             onGameEnd={(results) => {
               setGameResults(results)
+              setGameFinished(true)
+              // Determine winner from results
+              const gameWinner = results.reduce((prev, current) => 
+                prev.score > current.score ? prev : current
+              )
+              setWinner(gameWinner.player)
               console.log("Game ended with results:", results)
+            }}
+            onScoreUpdate={(scores) => {
+              // Keep a lightweight preview list in gameResults shape for display
+              const preview = Object.entries(scores).map(([player, score]) => ({
+                player,
+                score,
+                correctAnswers: Math.floor((score || 0) / 100),
+                totalQuestions: 10,
+                timeBonus: Math.floor((score || 0) % 100)
+              }))
+              setGameResults(preview)
             }}
           />
         ) : (
@@ -393,12 +674,34 @@ export default function LobbyPage() {
               {players.length >= lobby.maxPlayers ? (
                 <div className="text-green-600 font-semibold">
                   <CheckCircle className="h-6 w-6 inline mr-2" />
-                  All players have joined! The game will start soon.
+                  All players have joined! Ready to start the game.
                 </div>
               ) : (
                 <p className="text-muted-foreground">
                   Waiting for {lobby.maxPlayers - players.length} more players to join...
                 </p>
+              )}
+              {players.length >= lobby.maxPlayers && !gameStarted && (
+                <div className="mt-4">
+                  <Button
+                    onClick={startGame}
+                    disabled={startingGame}
+                    size="lg"
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {startingGame ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Starting Game...
+                      </>
+                    ) : (
+                      <>
+                        <Swords className="mr-2 h-4 w-4" />
+                        Start Game
+                      </>
+                    )}
+                  </Button>
+                </div>
               )}
               {isExpired && isUserInLobby && (
                 <div className="mt-4 flex gap-3 justify-center">
@@ -406,6 +709,77 @@ export default function LobbyPage() {
                   {pendingReturns && Number(pendingReturns) > 0 && (
                     <Button onClick={withdrawRefund} variant="outline">Withdraw ({Number(pendingReturns).toFixed(4)} CFX)</Button>
                   )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Game Results Scoreboard */}
+        {(gameFinished || (gameStarted && gameResults.length > 0)) && (
+          <Card className="mb-8">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Trophy className="h-5 w-5" />
+                {gameFinished ? 'Final Results' : 'Live Scores (Preview)'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {gameResults
+                  .sort((a, b) => b.score - a.score)
+                  .map((result, index) => (
+                    <div
+                      key={result.player}
+                      className={`flex items-center justify-between p-4 rounded-lg border ${
+                        result.player === winner
+                          ? "bg-yellow-50 border-yellow-200"
+                          : "bg-muted/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
+                          index === 0 ? "bg-yellow-500" : index === 1 ? "bg-gray-400" : index === 2 ? "bg-orange-600" : "bg-blue-500"
+                        }`}>
+                          {index + 1}
+                        </div>
+                        <div>
+                          <p className="font-medium">
+                            {result.player.toLowerCase() === account?.toLowerCase() ? "You" : `${result.player.slice(0, 6)}...${result.player.slice(-4)}`}
+                          </p>
+                          <p className="text-sm text-muted-foreground">
+                            {result.correctAnswers}/{result.totalQuestions} correct
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <Badge variant={index === 0 ? "default" : "outline"} className="text-lg">
+                          {result.score} pts
+                        </Badge>
+                        {result.player === winner && (
+                          <div className="text-xs text-yellow-600 font-semibold mt-1">
+                            🏆 Winner
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+              </div>
+              {winner && winner.toLowerCase() === account?.toLowerCase() && (
+                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-semibold text-yellow-800">Congratulations! You won!</h4>
+                      <p className="text-sm text-yellow-700">Prize will be distributed automatically by the game master.</p>
+                    </div>
+                    <Button
+                      onClick={claimPrize}
+                      disabled={claimingPrize}
+                      className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                    >
+                      {claimingPrize ? "Processing..." : "Claim Prize"}
+                    </Button>
+                  </div>
                 </div>
               )}
             </CardContent>
