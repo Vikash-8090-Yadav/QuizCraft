@@ -33,6 +33,14 @@ export default function ArenaPage() {
     entryFee: "",
     maxPlayers: "2"
   })
+  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false)
+  const [platformFee, setPlatformFee] = useState<number | null>(null)
+  const [gameMaster, setGameMaster] = useState<string | null>(null)
+  const [isOwner, setIsOwner] = useState(false)
+  const [updatingFee, setUpdatingFee] = useState(false)
+  const [updatingGameMaster, setUpdatingGameMaster] = useState(false)
+  const [newFee, setNewFee] = useState("")
+  const [newGameMaster, setNewGameMaster] = useState("")
 
   useEffect(() => {
     const fetchLobbies = async () => {
@@ -122,6 +130,24 @@ export default function ArenaPage() {
         }
         setLobbies(fetched)
         setDebugInfo(`Loaded ${fetched.length} lobbies`)
+
+        // Check if current account is owner and fetch admin data
+        if (account) {
+          try {
+            const owner = await readContract.owner()
+            const isOwnerAccount = owner.toLowerCase() === account.toLowerCase()
+            setIsOwner(isOwnerAccount)
+
+            if (isOwnerAccount) {
+              const fee = await readContract.platformFeeBps()
+              const gm = await readContract.gameMaster()
+              setPlatformFee(Number(fee))
+              setGameMaster(gm)
+            }
+          } catch (err) {
+            console.error("Error fetching admin data:", err)
+          }
+        }
       } catch (error) {
         console.error("Error fetching lobbies:", error)
         setDebugInfo(`Error: ${error}`)
@@ -132,7 +158,57 @@ export default function ArenaPage() {
     }
 
     fetchLobbies()
-  }, [])
+  }, [account, isConnected, isOnConflux])
+
+  // Listen to contract events for live updates
+  useEffect(() => {
+    if (!isConnected || !isOnConflux) return
+
+    let contract: ethers.Contract | null = null
+    const events = [
+      'LobbyCreated',
+      'PlayerJoined', 
+      'LobbyCompleted',
+      'LobbyCancelled',
+      'RefundClaimed',
+      'FeeUpdated',
+      'GameMasterUpdated'
+    ]
+
+    const setupEventListeners = async () => {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum)
+        contract = new ethers.Contract(
+          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+          QUIZ_CRAFT_ARENA_ABI,
+          provider
+        )
+
+        events.forEach(eventName => {
+          contract!.on(eventName, (...args) => {
+            console.log(`Event ${eventName}:`, args)
+            // Refresh lobbies when any relevant event occurs
+            setTimeout(() => {
+              window.location.reload()
+            }, 1000) // Small delay to ensure transaction is mined
+          })
+        })
+      } catch (error) {
+        console.error("Error setting up event listeners:", error)
+      }
+    }
+
+    setupEventListeners()
+
+    // Cleanup function
+    return () => {
+      if (contract) {
+        events.forEach(eventName => {
+          contract!.off(eventName)
+        })
+      }
+    }
+  }, [isConnected, isOnConflux])
 
   const joinLobby = async (lobby: Lobby) => {
     if (!signer || !isConnected) {
@@ -278,6 +354,51 @@ export default function ArenaPage() {
     }
   }
 
+  const updatePlatformFee = async () => {
+    if (!signer || !isOwner) return
+    const fee = parseInt(newFee)
+    if (isNaN(fee) || fee < 0 || fee > 1000) {
+      alert("Fee must be between 0 and 1000 basis points (0-10%)")
+      return
+    }
+    setUpdatingFee(true)
+    try {
+      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
+      const tx = await contract.updatePlatformFee(fee)
+      await tx.wait()
+      setPlatformFee(fee)
+      setNewFee("")
+      alert("Platform fee updated successfully!")
+    } catch (error: any) {
+      console.error("Error updating fee:", error)
+      alert(`Failed to update fee: ${error.message}`)
+    } finally {
+      setUpdatingFee(false)
+    }
+  }
+
+  const updateGameMaster = async () => {
+    if (!signer || !isOwner) return
+    if (!newGameMaster || !ethers.isAddress(newGameMaster)) {
+      alert("Please enter a valid Ethereum address")
+      return
+    }
+    setUpdatingGameMaster(true)
+    try {
+      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
+      const tx = await contract.updateGameMaster(newGameMaster)
+      await tx.wait()
+      setGameMaster(newGameMaster)
+      setNewGameMaster("")
+      alert("Game master updated successfully!")
+    } catch (error: any) {
+      console.error("Error updating game master:", error)
+      alert(`Failed to update game master: ${error.message}`)
+    } finally {
+      setUpdatingGameMaster(false)
+    }
+  }
+
   const getLobbyIcon = (mode: string) => {
     if (mode.includes("Duel")) return <Swords className="h-5 w-5" />
     if (mode.includes("Royale")) return <Crown className="h-5 w-5" />
@@ -382,6 +503,20 @@ export default function ArenaPage() {
 
           </div>
           
+          {/* Admin Panel Button for Owner */}
+          {isOwner && (
+            <div className="mt-6">
+              <Button
+                onClick={() => setIsAdminPanelOpen(true)}
+                size="lg"
+                className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600"
+              >
+                <Shield className="mr-2 h-4 w-4" />
+                Admin Panel
+              </Button>
+            </div>
+          )}
+
           {/* Create Lobby Button for Owner */}
           {account && account.toLowerCase() === OWNER_ADDRESS.toLowerCase() && (
             <div className="mt-6">
@@ -531,6 +666,92 @@ export default function ArenaPage() {
               </div>
             </DialogContent>
           </Dialog>
+
+          {/* Admin Panel Dialog */}
+          <Dialog open={isAdminPanelOpen} onOpenChange={setIsAdminPanelOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-purple-500" />
+                  Admin Panel
+                </DialogTitle>
+                <DialogDescription>
+                  Manage platform settings and game master. Only the contract owner can make changes.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-6 py-4">
+                {/* Current Settings */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Current Settings</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="text-muted-foreground">Platform Fee</p>
+                      <p className="font-semibold">{platformFee !== null ? `${platformFee} bps (${(platformFee / 100).toFixed(1)}%)` : "Loading..."}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Game Master</p>
+                      <p className="font-semibold text-xs break-all">{gameMaster || "Loading..."}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Update Platform Fee */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Update Platform Fee</h4>
+                  <div className="flex gap-2">
+                    <Input
+                      type="number"
+                      placeholder="New fee (0-1000 bps)"
+                      value={newFee}
+                      onChange={(e) => setNewFee(e.target.value)}
+                      min="0"
+                      max="1000"
+                    />
+                    <Button
+                      onClick={updatePlatformFee}
+                      disabled={updatingFee || !newFee}
+                      size="sm"
+                    >
+                      {updatingFee ? "Updating..." : "Update"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Fee in basis points (100 bps = 1%)
+                  </p>
+                </div>
+
+                {/* Update Game Master */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold">Update Game Master</h4>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="New game master address"
+                      value={newGameMaster}
+                      onChange={(e) => setNewGameMaster(e.target.value)}
+                    />
+                    <Button
+                      onClick={updateGameMaster}
+                      disabled={updatingGameMaster || !newGameMaster}
+                      size="sm"
+                    >
+                      {updatingGameMaster ? "Updating..." : "Update"}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enter a valid Ethereum address
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => setIsAdminPanelOpen(false)}
+                >
+                  Close
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
 
         {loading ? (
@@ -621,9 +842,9 @@ export default function ArenaPage() {
                       </div>
                     </div>
 
-                    {(lobby.isUserInLobby || lobby.currentPlayers > 0) ? (
+                    {lobby.isUserInLobby ? (
                       <Button
-                        onClick={() => window.location.href = `/arena/${lobby.id}`}
+                        onClick={() => window.location.href = `/arena/${Number(lobby.id)}`}
                         size="lg"
                         className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 bg-green-500 hover:bg-green-600 text-white"
                       >
