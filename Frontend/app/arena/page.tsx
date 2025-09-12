@@ -83,23 +83,19 @@ export default function ArenaPage() {
         signer
       )
 
-      // 1) Submit raw scores (onlyGameMaster)
-      const tx = await contract.submitScores(lobbyId, players, scores)
-      console.log("Scores update transaction sent:", tx.hash)
+      // Note: The new contract doesn't have submitScores or setLeaderboard functions
+      // Scores are now managed off-chain and only used for winner determination
+      console.log("Scores collected for lobby:", lobbyId)
+      console.log("Players:", players)
+      console.log("Scores:", scores)
       
-      await tx.wait()
-      console.log("Scores updated successfully")
-
-      // 2) Also set leaderboard based on the submitted scores (desc)
+      // Create leaderboard based on scores (for display purposes)
       const leaderboard = players
         .map((addr: string, i: number) => ({ addr, score: Number(scores[i] || 0) }))
         .sort((a: { addr: string; score: number }, b: { addr: string; score: number }) => b.score - a.score)
         .map((x: { addr: string; score: number }) => x.addr)
-
-      const tx2 = await contract.setLeaderboard(lobbyId, leaderboard)
-      console.log("Set leaderboard transaction sent:", tx2.hash)
-      await tx2.wait()
-      console.log("Leaderboard set successfully")
+      
+      console.log("Leaderboard created:", leaderboard)
 
       // Update local status after full confirmation
       const updatedScoresData = { ...collectedData, status: 'confirmed', leaderboard }
@@ -257,7 +253,7 @@ export default function ArenaPage() {
       for (let i = 0; i < lobbyCount; i++) {
         try {
           const lobby = await readContract.lobbies(i)
-          // lobby: { id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, winner, prizeDistributed, creator }
+          // lobby: { id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, distribution, players, winner, creator }
           const entryFeeCFX = ethers.formatEther(lobby.entryFee)
           const status = Number(lobby.status)
           const playerCount = Number(lobby.playerCount)
@@ -269,9 +265,9 @@ export default function ArenaPage() {
           if (status === 0) { // OPEN
             isActive = playerCount < maxPlayers
             statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
-          } else if (status === 1) { // FULL
-            isActive = false
-            statusText = "Full - Game starting"
+          } else if (status === 1) { // STARTED
+            isActive = playerCount < maxPlayers
+            statusText = `${playerCount}/${maxPlayers} players`
           } else if (status === 2) { // IN_PROGRESS
             isActive = false
             statusText = "Game in progress"
@@ -322,10 +318,11 @@ export default function ArenaPage() {
           setIsOwner(isOwnerAccount)
 
           if (isOwnerAccount) {
-            const fee = await readContract.platformFeeBps()
-            const gm = await readContract.gameMaster()
-            setPlatformFee(Number(fee))
-            setGameMaster(gm)
+            // Note: The new contract doesn't have platformFeeBps or gameMaster functions
+            // These are now managed differently in the new contract
+            console.log("Owner account detected, but platform fee and game master functions not available in new contract")
+            setPlatformFee(null)
+            setGameMaster(null)
           }
         } catch (err) {
           console.error("Error fetching admin data:", err)
@@ -619,8 +616,8 @@ export default function ArenaPage() {
       setLobbyForm({ name: "", category: "", entryFee: "", maxPlayers: "2" })
       setIsCreateModalOpen(false)
       
-      // Refresh lobbies
-      // Trigger soft refresh via events; optional manual refresh
+      // Refresh lobbies to show the new lobby
+      fetchLobbies()
     } catch (error: any) {
       console.error("Error creating lobby:", error)
       toast({ title: "Create failed", description: error.message || "Please try again.", variant: "destructive" })
@@ -638,12 +635,10 @@ export default function ArenaPage() {
     }
     setUpdatingFee(true)
     try {
-      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
-      const tx = await contract.updatePlatformFee(fee)
-      await tx.wait()
-      setPlatformFee(fee)
-      setNewFee("")
-      toast({ title: "Fee updated", description: `Platform fee set to ${fee} bps.` })
+      // Note: The new contract doesn't have updatePlatformFee function
+      // Platform fees are now managed differently in the new contract
+      console.log("Platform fee update requested:", fee)
+      toast({ title: "Fee update not available", description: "Platform fee management is not available in the new contract." })
     } catch (error: any) {
       console.error("Error updating fee:", error)
       toast({ title: "Update failed", description: error.message, variant: "destructive" })
@@ -660,12 +655,10 @@ export default function ArenaPage() {
     }
     setUpdatingGameMaster(true)
     try {
-      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
-      const tx = await contract.updateGameMaster(newGameMaster)
-      await tx.wait()
-      setGameMaster(newGameMaster)
-      setNewGameMaster("")
-      toast({ title: "Game master updated", description: `New GM: ${newGameMaster}` })
+      // Note: The new contract doesn't have updateGameMaster function
+      // Game master is now managed differently in the new contract
+      console.log("Game master update requested:", newGameMaster)
+      toast({ title: "Game master update not available", description: "Game master management is not available in the new contract." })
     } catch (error: any) {
       console.error("Error updating game master:", error)
       toast({ title: "Update failed", description: error.message, variant: "destructive" })
@@ -807,8 +800,8 @@ export default function ArenaPage() {
             </div>
           )}
 
-          {/* Create Lobby Button for Owner */}
-          {account && account.toLowerCase() === OWNER_ADDRESS.toLowerCase() && (
+          {/* Create Lobby Button for All Users */}
+          {account && (
             <div className="mt-6">
               <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
                 <DialogTrigger asChild>
@@ -817,7 +810,7 @@ export default function ArenaPage() {
                     className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
                   >
                     <Plus className="mr-2 h-4 w-4" />
-                    Create Custom Lobby (Owner Only)
+                    Create New Lobby
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-[425px]">
@@ -827,7 +820,7 @@ export default function ArenaPage() {
                       Create New Lobby
                     </DialogTitle>
                     <DialogDescription>
-                      Set up a new quiz lobby with custom settings. Only the contract owner can create lobbies.
+                      Set up a new quiz lobby with custom settings. Anyone can create lobbies.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="grid gap-4 py-4">
