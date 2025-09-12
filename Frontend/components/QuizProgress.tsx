@@ -22,6 +22,7 @@ interface QuizProgressProps {
   playersFinished: number
   totalPlayers: number
   isLastQuestion?: boolean
+  questionSource?: 'ai' | 'fallback' | null
 }
 
 export default function QuizProgress({
@@ -32,15 +33,23 @@ export default function QuizProgress({
   questionDuration,
   playersFinished,
   totalPlayers,
-  isLastQuestion = false
+  isLastQuestion = false,
+  questionSource = null
 }: QuizProgressProps) {
-  const progressPercentage = (currentQuestion / totalQuestions) * 100
+  // Fix progress calculation - currentQuestion is 0-based, but we want 1-based for display
+  const displayQuestion = currentQuestion + 1
+  const progressPercentage = (displayQuestion / totalQuestions) * 100
   const timePercentage = (timeRemaining / questionDuration) * 100
   const isTimeRunningLow = timeRemaining <= 5
+  const gradientBar = isTimeRunningLow
+    ? 'from-rose-500 via-red-500 to-orange-500'
+    : 'from-emerald-500 via-green-500 to-teal-500'
+  const subtleBg = 'bg-gradient-to-r from-white via-blue-50/40 to-purple-50/40'
 
   return (
     <div className="sticky top-20 z-40 w-full mb-6 px-4 animate-in slide-in-from-top-4 duration-500">
-      <Card className="border-0 shadow-2xl bg-gradient-to-r from-white via-blue-50/30 to-purple-50/30 backdrop-blur-xl hover:shadow-3xl transition-all duration-300">
+      <Card className={`border-0 shadow-2xl ${subtleBg} backdrop-blur-xl hover:shadow-3xl transition-all duration-300`}
+        style={{ borderRadius: 16 }}>
         <CardContent className="p-4">
           {/* Horizontal Layout */}
           <div className="flex items-center justify-between gap-6">
@@ -54,17 +63,19 @@ export default function QuizProgress({
                 <div>
                   <div className="text-sm font-medium text-gray-700">Question</div>
                   <div className="text-lg font-bold text-blue-600">
-                    {currentQuestion}/{totalQuestions}
+                    {displayQuestion}/{totalQuestions}
                   </div>
                 </div>
               </div>
               
-              <div className="w-24">
-                <Progress 
-                  value={progressPercentage} 
-                  className="h-2 bg-gray-200"
-                />
-                <div className="text-xs text-center text-gray-600 mt-1">
+              <div className="w-28">
+                <div className={`h-2 w-full rounded-full bg-gray-200 overflow-hidden`}>
+                  <div
+                    className={`h-full bg-gradient-to-r from-indigo-500 via-blue-500 to-cyan-500 transition-all`}
+                    style={{ width: `${Math.min(100, Math.max(0, progressPercentage))}%` }}
+                  />
+                </div>
+                <div className="text-xs text-center text-gray-600 mt-1 font-semibold">
                   {Math.round(progressPercentage)}%
                 </div>
               </div>
@@ -89,7 +100,7 @@ export default function QuizProgress({
                   <Clock className={`h-4 w-4 ${isTimeRunningLow ? 'text-red-600' : 'text-orange-600'}`} />
                   <span className="text-sm font-medium text-gray-700">Time</span>
                 </div>
-                <div className={`text-2xl font-bold ${isTimeRunningLow ? 'text-red-600' : 'text-orange-600'}`}>
+                <div className={`text-2xl font-bold ${isTimeRunningLow ? 'text-red-600' : 'text-emerald-600'}`}>
                   {timeRemaining}s
                 </div>
                 {isTimeRunningLow && (
@@ -115,9 +126,20 @@ export default function QuizProgress({
                 </div>
               </div>
 
+              {/* Question Source Badge */}
+              {questionSource && (
+                <div className={`px-3 py-1 rounded-full text-sm font-bold ${
+                  questionSource === 'ai' 
+                    ? 'bg-gradient-to-r from-purple-500 to-indigo-500 text-white' 
+                    : 'bg-gradient-to-r from-orange-500 to-red-500 text-white'
+                }`}>
+                  {questionSource === 'ai' ? '🤖 AI Questions' : '📚 Fallback'}
+                </div>
+              )}
+
               {/* Final Question Badge */}
               {isLastQuestion && (
-                <div className="px-3 py-1 bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-full text-sm font-bold animate-pulse">
+                <div className="px-3 py-1 bg-gradient-to-r from-fuchsia-500 to-pink-500 text-white rounded-full text-sm font-bold animate-pulse">
                   🎉 Final Q!
                 </div>
               )}
@@ -127,13 +149,13 @@ export default function QuizProgress({
 
           {/* Bottom: Time Progress Bar */}
           <div className="mt-4">
-            <div className="relative">
-              <Progress 
-                value={timePercentage} 
-                className={`h-1 ${isTimeRunningLow ? 'bg-red-200' : 'bg-orange-200'}`}
+            <div className="relative h-3 rounded-full overflow-hidden bg-gray-200">
+              <div
+                className={`absolute inset-y-0 left-0 bg-gradient-to-r ${gradientBar} transition-[width] duration-300`}
+                style={{ width: `${Math.min(100, Math.max(0, timePercentage))}%` }}
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-xs font-bold text-white drop-shadow-lg">
+                <span className="text-[10px] font-bold text-gray-700">
                   {Math.round(timePercentage)}% time left
                 </span>
               </div>
