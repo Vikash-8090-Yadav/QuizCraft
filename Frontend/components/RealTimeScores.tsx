@@ -1,0 +1,382 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Trophy, RefreshCw, Users, Medal, Crown, Star, Zap, Target } from "lucide-react"
+
+interface RealTimeScoresProps {
+  lobbyId: string | number
+  refreshInterval?: number // in milliseconds
+  gameState?: 'waiting' | 'playing' | 'finished' // Add game state
+  currentPlayerAddress?: string // Add current player for highlighting
+}
+
+interface PlayerScore {
+  player_address: string
+  score: number
+  correct_answers: number
+  total_questions: number
+  time_bonus: number
+  has_played: boolean
+}
+
+export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameState = 'waiting', currentPlayerAddress }: RealTimeScoresProps) {
+  const [scores, setScores] = useState<PlayerScore[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+
+  const fetchScores = async () => {
+    try {
+      setLoading(true)
+      const response = await fetch(`/api/scores/all-players?lobbyId=${lobbyId}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to fetch scores')
+      }
+      
+      const data = await response.json()
+      console.log('Fetched scores data:', data)
+      console.log('Debug info:', data.debug)
+      setScores(data.players || [])
+      setLastUpdated(new Date())
+      setError(null)
+    } catch (err: any) {
+      console.error('Error fetching real-time scores:', err)
+      setError(err.message || 'Failed to fetch scores')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    // Fetch scores immediately
+    fetchScores()
+    
+    // Set up interval for refreshing scores
+    const intervalId = setInterval(fetchScores, refreshInterval)
+    
+    // Clean up interval on unmount
+    return () => clearInterval(intervalId)
+  }, [lobbyId, refreshInterval])
+
+  const getRankIcon = (index: number, hasPlayed: boolean) => {
+    if (!hasPlayed) {
+      return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-gray-100 to-gray-200 border-2 border-gray-300 animate-pulse">
+          <Zap className="h-5 w-5 text-gray-500" />
+        </div>
+      )
+    }
+
+    if (index === 0) {
+      return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-yellow-400 to-yellow-600 border-2 border-yellow-500 shadow-lg shadow-yellow-500/30">
+          <Crown className="h-5 w-5 text-white" />
+        </div>
+      )
+    } else if (index === 1) {
+      return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-gray-300 to-gray-500 border-2 border-gray-400 shadow-lg shadow-gray-500/30">
+          <Medal className="h-5 w-5 text-white" />
+        </div>
+      )
+    } else if (index === 2) {
+      return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-amber-500 shadow-lg shadow-amber-500/30">
+          <Medal className="h-5 w-5 text-white" />
+        </div>
+      )
+    } else {
+      return (
+        <div className="w-10 h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-blue-400 to-blue-600 border-2 border-blue-500 shadow-md">
+          <span className="text-white font-bold text-sm">{index + 1}</span>
+        </div>
+      )
+    }
+  }
+
+  const getRankBadge = (index: number, hasPlayed: boolean) => {
+    if (!hasPlayed) {
+      return (
+        <Badge variant="outline" className="bg-gray-50 border-gray-200 text-gray-600">
+          <Target className="h-3 w-3 mr-1" />
+          Waiting
+        </Badge>
+      )
+    }
+
+    if (index === 0) {
+      return (
+        <Badge className="bg-gradient-to-r from-yellow-400 to-yellow-600 text-white border-0 shadow-lg">
+          <Crown className="h-3 w-3 mr-1" />
+          Champion
+        </Badge>
+      )
+    } else if (index === 1) {
+      return (
+        <Badge className="bg-gradient-to-r from-gray-400 to-gray-600 text-white border-0 shadow-lg">
+          <Medal className="h-3 w-3 mr-1" />
+          Runner-up
+        </Badge>
+      )
+    } else if (index === 2) {
+      return (
+        <Badge className="bg-gradient-to-r from-amber-500 to-amber-700 text-white border-0 shadow-lg">
+          <Medal className="h-3 w-3 mr-1" />
+          Third Place
+        </Badge>
+      )
+    } else {
+      return (
+        <Badge variant="secondary" className="bg-blue-50 text-blue-700 border-blue-200">
+          <Star className="h-3 w-3 mr-1" />
+          Player
+        </Badge>
+      )
+    }
+  }
+
+  return (
+    <Card className="mb-8 border-0 shadow-xl bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30 backdrop-blur-sm">
+      <CardHeader className="pb-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <CardTitle className="flex items-center gap-3 text-xl">
+              <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg">
+                <Trophy className="h-6 w-6 text-white" />
+              </div>
+              <div>
+                <div className="font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  {gameState === 'waiting' ? 'Lobby Players' : 
+                   gameState === 'playing' ? 'Live Scores' : 
+                   'Final Results'}
+                </div>
+                <div className="text-sm text-gray-600 font-normal">
+                  {gameState === 'waiting' ? 'Players waiting to start the game' : 
+                   gameState === 'playing' ? 'Live on-chain scores during quiz' : 
+                   'Final scores and rankings'}
+                </div>
+              </div>
+            </CardTitle>
+            <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Users className="h-4 w-4" />
+                <span>{scores.length} players</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Zap className="h-4 w-4" />
+                <span>{gameState === 'finished' ? 'Final scores' : 'Real-time updates'}</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            {lastUpdated && (
+              <div className="text-right">
+                <div className="text-xs text-muted-foreground">Last updated</div>
+                <div className="text-xs font-medium">{lastUpdated.toLocaleTimeString()}</div>
+              </div>
+            )}
+            <Button
+              onClick={fetchScores}
+              variant="outline"
+              size="sm"
+              className="flex items-center gap-2 hover:bg-blue-50 border-blue-200 hover:border-blue-300 transition-all duration-200"
+              disabled={loading}
+            >
+              {loading ? (
+                <RefreshCw className="h-4 w-4 animate-spin text-blue-500" />
+              ) : (
+                <RefreshCw className="h-4 w-4 text-blue-500" />
+              )}
+              <span className="text-blue-600 font-medium">Refresh</span>
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        {error ? (
+          <div className="p-8 text-center bg-red-50 border border-red-200 rounded-xl">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trophy className="h-8 w-8 text-red-500" />
+            </div>
+            <p className="text-red-600 font-medium mb-4">{error}</p>
+            <Button 
+              onClick={fetchScores} 
+              variant="outline" 
+              size="sm" 
+              className="bg-red-50 border-red-200 text-red-600 hover:bg-red-100"
+            >
+              Try Again
+            </Button>
+          </div>
+        ) : loading && scores.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-pulse">
+              <RefreshCw className="h-10 w-10 animate-spin text-blue-500" />
+            </div>
+            <p className="text-muted-foreground font-medium">Loading leaderboard...</p>
+          </div>
+        ) : scores.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users className="h-10 w-10 text-gray-400" />
+            </div>
+            <p className="text-muted-foreground font-medium">No players found in this lobby.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {scores
+              .slice()
+              .sort((a, b) => {
+                // First sort by whether they've played (played players first)
+                if (a.has_played !== b.has_played) {
+                  return b.has_played ? 1 : -1
+                }
+                // Then sort by score (highest first)
+                return b.score - a.score
+              })
+              .map((player, index) => {
+                // Calculate rank only for players who have played
+                const playedPlayers = scores.filter(p => p.has_played)
+                const playerRank = playedPlayers.findIndex(p => p.player_address === player.player_address)
+                const isTopThree = player.has_played && playerRank >= 0 && playerRank < 3
+                const isCurrentPlayer = currentPlayerAddress && 
+                  player.player_address.toLowerCase() === currentPlayerAddress.toLowerCase()
+                
+                return (
+                <div
+                  key={`realtime-${player.player_address}-${playerRank}`}
+                  className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
+                    isCurrentPlayer ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-300 ring-2 ring-green-400 ring-opacity-50 shadow-lg shadow-green-500/20' :
+                    isTopThree && playerRank === 0 ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300 shadow-lg shadow-yellow-500/20' :
+                    isTopThree && playerRank === 1 ? 'bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300 shadow-lg shadow-gray-500/20' :
+                    isTopThree && playerRank === 2 ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-300 shadow-lg shadow-amber-500/20' :
+                    player.has_played ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200 hover:border-blue-300' :
+                    'bg-gradient-to-r from-gray-50 to-slate-50 border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  {/* Animated background gradient */}
+                  <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 transition-opacity duration-300 ${
+                    isTopThree && playerRank === 0 ? 'bg-gradient-to-r from-yellow-400 to-yellow-600' :
+                    isTopThree && playerRank === 1 ? 'bg-gradient-to-r from-gray-400 to-gray-600' :
+                    isTopThree && playerRank === 2 ? 'bg-gradient-to-r from-amber-400 to-amber-600' :
+                    'bg-gradient-to-r from-blue-400 to-indigo-600'
+                  }`} />
+                  
+                  <div className="relative flex items-center justify-between p-4">
+                    <div className="flex items-center gap-4">
+                      {getRankIcon(playerRank, player.has_played)}
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-semibold text-gray-900 font-mono">
+                            {isCurrentPlayer ? 'You' : `${player.player_address.slice(0, 6)}...${player.player_address.slice(-4)}`}
+                          </p>
+                          {isCurrentPlayer && (
+                            <Badge className="bg-green-500 text-white border-0 shadow-lg">
+                              <Star className="h-3 w-3 mr-1" />
+                              You
+                            </Badge>
+                          )}
+                          {!isCurrentPlayer && getRankBadge(playerRank, player.has_played)}
+                        </div>
+                        {player.has_played && (
+                          <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <Target className="h-3 w-3" />
+                              {player.correct_answers}/{player.total_questions} correct
+                            </span>
+                            {player.time_bonus > 0 && (
+                              <span className="flex items-center gap-1 text-green-600">
+                                <Zap className="h-3 w-3" />
+                                +{player.time_bonus} time bonus
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="text-right">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-3xl font-bold ${
+                          isTopThree && playerRank === 0 ? 'text-yellow-600' :
+                          isTopThree && playerRank === 1 ? 'text-gray-600' :
+                          isTopThree && playerRank === 2 ? 'text-amber-600' :
+                          player.has_played ? 'text-blue-600' : 'text-gray-500'
+                        }`}>
+                          {player.score.toLocaleString()}
+                        </span>
+                        {isTopThree && playerRank === 0 && (
+                          <div className="animate-bounce">
+                            <Crown className="h-6 w-6 text-yellow-500" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm font-medium text-muted-foreground">points</p>
+                    </div>
+                  </div>
+                </div>
+                )
+              })
+            }
+            
+            {/* Summary Stats */}
+            {scores.length > 0 && (
+              <div className="mt-6 p-4 bg-gradient-to-r from-gray-50 to-blue-50 rounded-xl border border-gray-200">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-blue-600">{scores.length}</div>
+                    <div className="text-sm text-muted-foreground">Total Players</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-green-600">
+                      {scores.filter(p => p.has_played).length}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Completed</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-orange-600">
+                      {scores.filter(p => !p.has_played).length}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Waiting</div>
+                  </div>
+                  <div className="space-y-1">
+                    <div className="text-2xl font-bold text-purple-600">
+                      {scores.length > 0 ? Math.round(scores.reduce((sum, p) => sum + p.score, 0) / scores.length) : 0}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Avg Score</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons for Finished Game */}
+            {gameState === 'finished' && (
+              <div className="mt-6 flex gap-4 justify-center">
+                <Button
+                  onClick={() => window.location.reload()}
+                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white px-6 py-2"
+                >
+                  <Zap className="h-4 w-4 mr-2" />
+                  Play Again
+                </Button>
+                <Button
+                  onClick={() => window.location.href = `/arena`}
+                  variant="outline"
+                  className="px-6 py-2"
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Back to Arena
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
