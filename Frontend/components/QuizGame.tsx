@@ -42,8 +42,7 @@ interface GameResult {
 }
 
 export default function QuizGame({ lobbyId, players, category, onGameEnd, onScoreUpdate, startTimestampSec, questionDurationSec, seed, currentPlayerAddress }: QuizGameProps) {
-  const [gameState, setGameState] = useState<'waiting' | 'countdown' | 'playing' | 'finished'>('waiting');
-  const [countdown, setCountdown] = useState(10);
+  const [gameState, setGameState] = useState<'waiting' | 'playing' | 'finished'>('waiting');
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
@@ -83,270 +82,39 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
   // Generate quiz once when component mounts
   useEffect(() => {
     if (questions.length === 0) {
+      console.log("Starting quiz generation...")
       generateQuiz()
     }
   }, []) // Empty dependency array - run only once
 
-  // Initialize game phase based on startTimestampSec
+  // Initialize game phase - start playing when questions are loaded
   useEffect(() => {
-    const tick = () => {
-      const nowSec = Math.floor(Date.now() / 1000)
-      
-      if (nowSec < startTimestampSec) {
-        setGameState('countdown')
-        setCountdown(Math.max(0, startTimestampSec - nowSec))
-        return
-      }
+    console.log("Questions state changed:", {
+      questionsLength: questions.length,
+      questions: questions,
+      firstQuestion: questions[0]
+    });
 
       if (questions.length === 0) return
 
-      const elapsed = nowSec - startTimestampSec
-      const desiredIndex = Math.floor(elapsed / questionDurationSec)
-
-      // If we've exceeded the total quiz time, finish once
-      if (elapsed >= questions.length * questionDurationSec) {
-        if (gameState !== 'finished') endGame()
-        return
-      }
-
+    // Only start playing if we have valid questions
+    if (questions.length > 0 && questions[0] && questions[0].question) {
+      console.log("Starting game with questions:", questions);
       setGameState('playing')
-
-      // Clamp advancement to at most +1 step to avoid skipping questions on timer lag
-      setCurrentQuestion(prev => {
-        const clampedNext = Math.min(prev + 1, Math.max(prev, desiredIndex))
-        // Compute remaining time relative to clampedNext question start
-        const localElapsed = Math.max(0, elapsed - clampedNext * questionDurationSec)
-        const rem = Math.max(0, questionDurationSec - (localElapsed % questionDurationSec))
-        setTimeLeft(rem)
-        return clampedNext
-      })
+      setCurrentQuestion(0) // Start from question 1
+      setTimeLeft(questionDurationSec)
+      console.log("🎮 GAME STARTED! Question 1 of", questions.length, "with", questionDurationSec, "seconds per question");
+    } else {
+      console.warn("Questions loaded but first question is invalid:", questions[0]);
+      console.warn("All questions:", questions.map((q, i) => ({ index: i, valid: !!(q && q.question), question: q?.question })));
+      
+      // If questions are invalid, try to regenerate them
+      if (questions.length > 0 && questions.every(q => !q || !q.question)) {
+        console.log("All questions are invalid, regenerating...");
+        generateQuiz();
+      }
     }
-
-    const i = setInterval(tick, 250)
-    tick()
-    return () => clearInterval(i)
-  }, [startTimestampSec, questionDurationSec, questions.length, gameState])
-
-  // Emit live score reset at game start
-  useEffect(() => {
-    if (gameState === 'playing' && onScoreUpdate) onScoreUpdate(playerScores)
-  }, [gameState])
-
-  // Game protection - prevent navigation during active game
-  useEffect(() => {
-    const isGameActive = gameState === 'playing' || gameState === 'countdown';
-    setGameProtectionActive(isGameActive);
-
-    if (isGameActive) {
-      // Prevent page refresh
-      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-        e.preventDefault();
-        e.returnValue = 'Are you sure you want to leave? Your progress will be lost!';
-        return 'Are you sure you want to leave? Your progress will be lost!';
-      };
-
-      // Prevent back button
-      const handlePopState = (e: PopStateEvent) => {
-        if (isGameActive) {
-          e.preventDefault();
-          window.history.pushState(null, '', window.location.href);
-          alert('Cannot go back during the quiz! Please complete the game first.');
-        }
-      };
-
-      // Add event listeners
-      window.addEventListener('beforeunload', handleBeforeUnload);
-      window.addEventListener('popstate', handlePopState);
-      
-      // Push a state to prevent back button
-      window.history.pushState(null, '', window.location.href);
-
-      // Disable right-click context menu
-      const handleContextMenu = (e: MouseEvent) => {
-        e.preventDefault();
-        return false;
-      };
-
-      // Disable F5, Ctrl+R, Ctrl+Shift+R, DevTools shortcuts
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'F5' || 
-            (e.ctrlKey && e.key === 'r') || 
-            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
-            (e.ctrlKey && e.key === 'w') ||
-            (e.altKey && e.key === 'ArrowLeft') ||
-            (e.ctrlKey && e.shiftKey && e.key === 'I') || // DevTools
-            (e.ctrlKey && e.shiftKey && e.key === 'C') || // DevTools
-            (e.ctrlKey && e.shiftKey && e.key === 'J') || // Console
-            (e.ctrlKey && e.key === 'u') || // View source
-            (e.key === 'F12')) { // DevTools
-          e.preventDefault();
-          alert('Please complete the quiz before refreshing or closing the page!');
-          return false;
-        }
-      };
-
-      document.addEventListener('contextmenu', handleContextMenu);
-      document.addEventListener('keydown', handleKeyDown);
-
-      // Add visual protection overlay
-      const overlay = document.createElement('div');
-      overlay.id = 'quiz-protection-overlay';
-      overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.02);
-        pointer-events: none;
-        z-index: 9999;
-        display: none;
-      `;
-      document.body.appendChild(overlay);
-
-      // Cleanup function
-      return () => {
-        window.removeEventListener('beforeunload', handleBeforeUnload);
-        window.removeEventListener('popstate', handlePopState);
-        document.removeEventListener('contextmenu', handleContextMenu);
-        document.removeEventListener('keydown', handleKeyDown);
-        
-        // Remove overlay
-        const existingOverlay = document.getElementById('quiz-protection-overlay');
-        if (existingOverlay) {
-          existingOverlay.remove();
-        }
-      };
-    }
-  }, [gameState]);
-
-  // timeLeft derived by main tick; no separate timer needed
-
-  const startGame = () => {
-    setGameState('countdown');
-    setQuizStartedAt(startTimestampSec * 1000);
-  };
-
-  const generateQuiz = async () => {
-    try {
-      let response = await fetch('/api/generate-quiz', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category: category || 'Technology',
-          difficulty: 'medium',
-          questionCount: 10,
-          timePerQuestion: questionDurationSec,
-          seed,
-        })
-      });
-      if (!response.ok) {
-        // brief retry once on 503 from AI
-        response = await fetch('/api/generate-quiz', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            category: category || 'Technology',
-            difficulty: 'medium',
-            questionCount: 10,
-            timePerQuestion: questionDurationSec,
-            seed,
-          })
-        });
-      }
-      const data = await response.json();
-      if (process.env.NODE_ENV !== 'production') {
-        // Helpful debug in console
-        // eslint-disable-next-line no-console
-        console.log('Quiz generation debug:', data.debug);
-      }
-      if (data.success) {
-        setQuestions(data.quiz.questions);
-        setTimeLeft(data.quiz.timePerQuestion);
-        const usedFallback = Boolean(data.debug?.fallbackUsed);
-        setQuestionSource(usedFallback ? 'fallback' : 'ai');
-      } else {
-        // Fallback: minimal placeholder quiz so UI proceeds
-        const placeholder = {
-          id: 'placeholder',
-          question: 'Placeholder question: Which letter comes first?',
-          options: ['A', 'B', 'C', 'D'],
-          correctAnswer: 0,
-          timeLimit: 30,
-          explanation: 'The correct answer is "A".',
-          category: category || 'General',
-          difficulty: 'easy' as const,
-        };
-        setQuestions([placeholder]);
-        setTimeLeft(placeholder.timeLimit);
-        setQuestionSource('fallback');
-        console.warn('Using placeholder quiz due to generation failure');
-      }
-    } catch (error) {
-      console.error('Error generating quiz:', error);
-      const placeholder = {
-        id: 'placeholder',
-        question: 'Placeholder question: Which letter comes first?',
-        options: ['A', 'B', 'C', 'D'],
-        correctAnswer: 0,
-        timeLimit: questionDurationSec,
-        explanation: 'The correct answer is "A".',
-        category: category || 'General',
-        difficulty: 'easy' as const,
-      };
-      setQuestions([placeholder]);
-      setTimeLeft(placeholder.timeLimit);
-      setQuestionSource('fallback');
-    }
-  };
-
-  const handleAnswerSelect = (answerIndex: number) => {
-    if (selectedAnswer !== null) return; // Already answered
-    
-    setSelectedAnswer(answerIndex);
-    setShowExplanation(true);
-    
-    // Calculate score
-    const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
-    const timeBonus = Math.floor(timeLeft / 5); // Bonus points for speed (0-2 points)
-    // Scoring: 100 points for correct answer + time bonus, -25 for wrong answer
-    const points = isCorrect ? (100 + timeBonus) : -25;
-    
-    // Update scores for the connected player
-    setPlayerScores(prev => {
-      const next = { ...prev }
-      
-      // Find existing key with case-insensitive matching
-      let existingKey = null;
-      for (const key of Object.keys(next)) {
-        if (key.toLowerCase() === currentPlayerAddress.toLowerCase()) {
-          existingKey = key;
-          break;
-        }
-      }
-      
-      // Use existing key if found, otherwise use currentPlayerAddress
-      const playerKey = existingKey || currentPlayerAddress;
-      const current = next[playerKey] || 0
-      const newScore = Math.max(0, current + points) // Ensure score never goes below 0
-      next[playerKey] = newScore
-      
-      console.log(`Score update for ${playerKey}: +${points} = ${newScore} (was ${current})`)
-      console.log('Updated playerScores:', next)
-      if (onScoreUpdate) onScoreUpdate(next)
-      return next
-    });
-
-    // Clear selection after a brief explanation window; advance handled by time-based tick
-    setTimeout(() => {
-      setSelectedAnswer(null);
-      setShowExplanation(false);
-    }, 2000);
-  };
-
-  const handleTimeUp = () => {
-    // no-op; advancement handled by wall-clock
-  };
+  }, [questions.length, questionDurationSec, questions])
 
   const endGame = async () => {
     setGameState('finished');
@@ -585,99 +353,335 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
     }
   };
 
-  if (gameState === 'waiting') {
+  // Simple independent timer - no complex calculations
+  useEffect(() => {
+    if (gameState !== 'playing' || questions.length === 0) return
+
+    console.log("Starting simple timer for question:", currentQuestion + 1, "of", questions.length);
+
+    // Simple countdown timer
+    const tick = () => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          // Time's up for current question
+          console.log("Time's up for question:", currentQuestion + 1);
+          
+          // Move to next question or end game
+          if (currentQuestion < questions.length - 1) {
+            console.log("Moving to next question:", currentQuestion + 2);
+            setCurrentQuestion(prev => prev + 1);
+            return questionDurationSec; // Reset timer for next question
+          } else {
+            console.log("Quiz finished, ending game");
+            endGame();
+            return 0;
+          }
+        }
+        return prev - 1; // Simple countdown
+      });
+    }
+
+    const i = setInterval(tick, 1000) // Simple 1-second countdown
+    return () => clearInterval(i)
+  }, [currentQuestion, gameState, questions.length, questionDurationSec, endGame])
+
+  // Emit live score reset at game start
+  useEffect(() => {
+    if (gameState === 'playing' && onScoreUpdate) onScoreUpdate(playerScores)
+  }, [gameState])
+
+  // Game protection - prevent navigation during active game
+  useEffect(() => {
+    const isGameActive = gameState === 'playing';
+    setGameProtectionActive(isGameActive);
+
+    if (isGameActive) {
+      // Prevent page refresh
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = 'Are you sure you want to leave? Your progress will be lost!';
+        return 'Are you sure you want to leave? Your progress will be lost!';
+      };
+
+      // Prevent back button
+      const handlePopState = (e: PopStateEvent) => {
+        if (isGameActive) {
+          e.preventDefault();
+          window.history.pushState(null, '', window.location.href);
+          alert('Cannot go back during the quiz! Please complete the game first.');
+        }
+      };
+
+      // Add event listeners
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('popstate', handlePopState);
+      
+      // Push a state to prevent back button
+      window.history.pushState(null, '', window.location.href);
+
+      // Disable right-click context menu
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      // Disable F5, Ctrl+R, Ctrl+Shift+R, DevTools shortcuts
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'F5' || 
+            (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
+            (e.ctrlKey && e.key === 'w') ||
+            (e.altKey && e.key === 'ArrowLeft') ||
+            (e.ctrlKey && e.shiftKey && e.key === 'I') || // DevTools
+            (e.ctrlKey && e.shiftKey && e.key === 'C') || // DevTools
+            (e.ctrlKey && e.shiftKey && e.key === 'J') || // Console
+            (e.ctrlKey && e.key === 'u') || // View source
+            (e.key === 'F12')) { // DevTools
+          e.preventDefault();
+          alert('Please complete the quiz before refreshing or closing the page!');
+          return false;
+        }
+      };
+
+      document.addEventListener('contextmenu', handleContextMenu);
+      document.addEventListener('keydown', handleKeyDown);
+
+      // Add visual protection overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'quiz-protection-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.02);
+        pointer-events: none;
+        z-index: 9999;
+        display: none;
+      `;
+      document.body.appendChild(overlay);
+
+      // Cleanup function
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.removeEventListener('popstate', handlePopState);
+        document.removeEventListener('contextmenu', handleContextMenu);
+        document.removeEventListener('keydown', handleKeyDown);
+        
+        // Remove overlay
+        const existingOverlay = document.getElementById('quiz-protection-overlay');
+        if (existingOverlay) {
+          existingOverlay.remove();
+        }
+      };
+    }
+  }, [gameState]);
+
+  // timeLeft derived by main tick; no separate timer needed
+
+  // Game starts automatically when component mounts - no manual start needed
+
+  const generateQuiz = async () => {
+    try {
+      console.log("Generating quiz with params:", {
+        category: category || 'Technology',
+        difficulty: 'medium',
+        questionCount: 10,
+        timePerQuestion: questionDurationSec,
+        seed,
+      });
+      
+      let response = await fetch('/api/generate-quiz', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          category: category || 'Technology',
+          difficulty: 'medium',
+          questionCount: 10,
+          timePerQuestion: questionDurationSec,
+          seed,
+        })
+      });
+      
+      console.log("Quiz generation response status:", response.status);
+      
+      if (!response.ok) {
+        console.log("First attempt failed, retrying...");
+        // brief retry once on 503 from AI
+        response = await fetch('/api/generate-quiz', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            category: category || 'Technology',
+            difficulty: 'medium',
+            questionCount: 10,
+            timePerQuestion: questionDurationSec,
+            seed,
+          })
+        });
+        console.log("Retry response status:", response.status);
+      }
+      
+      const data = await response.json();
+      console.log("Quiz generation response data:", data);
+      
+      if (process.env.NODE_ENV !== 'production') {
+        // Helpful debug in console
+        // eslint-disable-next-line no-console
+        console.log('Quiz generation debug:', data.debug);
+      }
+      
+      if (data.success) {
+        console.log("Quiz generated successfully, questions:", data.quiz.questions);
+        setQuestions(data.quiz.questions);
+        setTimeLeft(data.quiz.timePerQuestion);
+        const usedFallback = Boolean(data.debug?.fallbackUsed);
+        const source = usedFallback ? 'fallback' : 'ai';
+        console.log("Question source set to:", source, "fallbackUsed:", data.debug?.fallbackUsed);
+        setQuestionSource(source);
+      } else {
+        console.warn("Quiz generation failed, using placeholder");
+        // Fallback: minimal placeholder quiz so UI proceeds
+        const placeholder = {
+          id: 'placeholder',
+          question: 'Placeholder question: Which letter comes first?',
+          options: ['A', 'B', 'C', 'D'],
+          correctAnswer: 0,
+          timeLimit: 30,
+          explanation: 'The correct answer is "A".',
+          category: category || 'General',
+          difficulty: 'easy' as const,
+        };
+        setQuestions([placeholder]);
+        setTimeLeft(placeholder.timeLimit);
+        console.log("Question source set to: fallback (placeholder)");
+        setQuestionSource('fallback');
+        console.warn('Using placeholder quiz due to generation failure');
+      }
+    } catch (error) {
+      console.error('Error generating quiz:', error);
+      const placeholder = {
+        id: 'placeholder',
+        question: 'Placeholder question: Which letter comes first?',
+        options: ['A', 'B', 'C', 'D'],
+        correctAnswer: 0,
+        timeLimit: questionDurationSec,
+        explanation: 'The correct answer is "A".',
+        category: category || 'General',
+        difficulty: 'easy' as const,
+      };
+      setQuestions([placeholder]);
+      setTimeLeft(placeholder.timeLimit);
+      console.log("Question source set to: fallback (error)");
+      setQuestionSource('fallback');
+    }
+  };
+
+  const handleAnswerSelect = (answerIndex: number) => {
+    if (selectedAnswer !== null) return; // Already answered
+    
+    setSelectedAnswer(answerIndex);
+    setShowExplanation(true);
+    
+    // Calculate score
+    const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
+    const timeBonus = Math.floor(timeLeft / 5); // Bonus points for speed (0-2 points)
+    // Scoring: 100 points for correct answer + time bonus, -25 for wrong answer
+    const points = isCorrect ? (100 + timeBonus) : -25;
+    
+    // Update scores for the connected player
+    setPlayerScores(prev => {
+      const next = { ...prev }
+      
+      // Find existing key with case-insensitive matching
+      let existingKey = null;
+      for (const key of Object.keys(next)) {
+        if (key.toLowerCase() === currentPlayerAddress.toLowerCase()) {
+          existingKey = key;
+          break;
+        }
+      }
+      
+      // Use existing key if found, otherwise use currentPlayerAddress
+      const playerKey = existingKey || currentPlayerAddress;
+      const current = next[playerKey] || 0
+      const newScore = Math.max(0, current + points) // Ensure score never goes below 0
+      next[playerKey] = newScore
+      
+      console.log(`Score update for ${playerKey}: +${points} = ${newScore} (was ${current})`)
+      console.log('Updated playerScores:', next)
+      if (onScoreUpdate) onScoreUpdate(next)
+      return next
+    });
+
+    // Clear selection after a brief explanation window; advance handled by time-based tick
+    setTimeout(() => {
+      setSelectedAnswer(null);
+      setShowExplanation(false);
+    }, 2000);
+  };
+
+  const handleTimeUp = () => {
+    // no-op; advancement handled by wall-clock
+  };
+
+  if (gameState === 'waiting' || questions.length === 0) {
     return (
       <div className="w-full max-w-3xl mx-auto space-y-6">
-        {/* Title shimmer */}
-        <Card className="overflow-hidden">
-          <CardContent className="p-8">
-            <div className="relative overflow-hidden">
-              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_1.6s_infinite]" />
-              <div className="flex items-center justify-between">
-                <div className="space-y-3">
-                  <div className="h-7 w-48 bg-muted rounded" />
-                  <div className="h-4 w-64 bg-muted/80 rounded" />
-                </div>
-                <div className="h-12 w-28 bg-muted rounded-lg" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Players shimmer */}
-        <Card className="overflow-hidden">
-          <CardContent className="p-6">
-            <div className="relative overflow-hidden">
-              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[shimmer_1.6s_infinite]" />
-              <div className="flex items-center gap-3 mb-4">
-                <div className="h-10 w-10 rounded-lg bg-muted" />
-                <div className="h-5 w-40 bg-muted rounded" />
-                <div className="ml-auto h-5 w-28 bg-muted rounded" />
-              </div>
-              <div className="space-y-3">
-                {[0,1,2,3].map((i) => (
-                  <div key={i} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
-                    <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-muted" />
-                      <div className="h-4 w-32 bg-muted rounded" />
-                    </div>
-                    <div className="h-4 w-16 bg-muted rounded" />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Footer action shimmer */}
-        <Card className="overflow-hidden">
-          <CardContent className="p-8 text-center">
-            <div className="relative overflow-hidden">
-              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[shimmer_1.6s_infinite]" />
-              <div className="mx-auto h-11 w-44 bg-muted rounded-lg" />
-            </div>
-          </CardContent>
-        </Card>
-        <style jsx global>{`
-          @keyframes shimmer { 100% { transform: translateX(100%); } }
-        `}</style>
-      </div>
-    );
-  }
-
-  if (gameState === 'countdown') {
-    return (
-      <div className="w-full max-w-2xl mx-auto space-y-4">
-        {/* Game Protection Indicator */}
-        {gameProtectionActive && (
-          <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3 text-orange-700 dark:text-orange-300">
-                <Shield className="h-5 w-5" />
-                <div className="flex-1">
-                  <p className="font-medium">Game Protection Active</p>
-                  <p className="text-sm opacity-80">
-                    Page refresh, back button, and navigation are disabled during the quiz to protect your progress.
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        
         <Card>
           <CardContent className="p-8 text-center">
-            <div className="text-6xl font-bold text-accent mb-4">{countdown}</div>
-            <h2 className="text-2xl font-bold mb-4">Game Starting Soon!</h2>
-            <p className="text-muted-foreground">Get ready for the quiz battle!</p>
+            <div className="space-y-4">
+              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
+                <Zap className="h-8 w-8 text-blue-600 animate-pulse" />
+              </div>
+              <h2 className="text-2xl font-bold text-blue-600">Preparing Quiz...</h2>
+              <p className="text-muted-foreground">
+                Generating questions for your quiz battle. Please wait...
+              </p>
+            </div>
           </CardContent>
         </Card>
       </div>
     );
   }
 
+  // No countdown needed - lobby page handles it
+
   if (gameState === 'playing' && questions.length > 0) {
-    const question = questions[currentQuestion];
+    // Ensure currentQuestion is within bounds
+    const safeCurrentQuestion = Math.max(0, Math.min(currentQuestion, questions.length - 1));
+    const question = questions[safeCurrentQuestion];
+    
+    console.log("Rendering question:", {
+      gameState,
+      questionsLength: questions.length,
+      currentQuestion,
+      safeCurrentQuestion,
+      question: question,
+      questionExists: !!question,
+      allQuestions: questions.map((q, i) => ({ index: i, exists: !!q, question: q?.question }))
+    });
+    
+    // Add safety check for question object
+    if (!question || !question.question) {
+      console.warn("Question is undefined or invalid, showing loading state");
+    return (
+        <div className="w-full max-w-4xl mx-auto space-y-6">
+          <Card>
+            <CardContent className="p-8 text-center">
+              <div className="text-lg text-muted-foreground">
+                Loading question... (Debug: questions.length = {questions.length}, currentQuestion = {currentQuestion}, safeCurrentQuestion = {safeCurrentQuestion})
+                </div>
+              <div className="text-sm text-muted-foreground mt-2">
+                Questions status: {questions.map((q, i) => `${i}:${!!q ? '✓' : '✗'}`).join(', ')}
+              </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
     const progress = ((currentQuestion + 1) / questions.length) * 100;
 
     return (
@@ -700,7 +704,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
         )}
         {/* Personal Progress Component */}
         <QuizProgress
-          currentQuestion={currentQuestion + 1}
+          currentQuestion={currentQuestion}
           totalQuestions={questions.length}
           playerScore={playerScores[currentPlayerAddress] || 0}
           timeRemaining={timeLeft}
@@ -708,19 +712,20 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
           playersFinished={Object.keys(playerScores).length}
           totalPlayers={players.length}
           isLastQuestion={currentQuestion === questions.length - 1}
+          questionSource={questionSource}
         />
 
         {/* Question Card */}
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <Badge variant="outline">{question.category}</Badge>
-              <Badge variant="secondary">{question.difficulty}</Badge>
+              <Badge variant="outline">{question.category || 'General'}</Badge>
+              <Badge variant="secondary">{question.difficulty || 'medium'}</Badge>
             </div>
-            <CardTitle className="text-xl">{question.question}</CardTitle>
+            <CardTitle className="text-xl">{question.question || 'Loading question...'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {question.options.map((option, index) => (
+            {(question.options || []).map((option, index) => (
               <Button
                 key={index}
                 variant={selectedAnswer === index ? "default" : "outline"}
@@ -746,7 +751,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
           <Card className="border-blue-200 bg-blue-50">
             <CardContent className="p-4">
               <h4 className="font-semibold text-blue-900 mb-2">Explanation:</h4>
-              <p className="text-blue-800">{question.explanation}</p>
+              <p className="text-blue-800">{question.explanation || 'No explanation available.'}</p>
             </CardContent>
           </Card>
         )}
