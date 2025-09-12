@@ -6,11 +6,11 @@ export async function POST(request: NextRequest) {
       category = "Technology",
       difficulty = "medium",
       questionCount = 1,
-      timePerQuestion = 30,
+      timePerQuestion = 10,
       seed,
     } = await request.json()
 
-    // Compose a prompt for Perplexity
+    // Compose a prompt for OpenAI
     const prompt = `Generate exactly 10 ${difficulty} multiple-choice quiz questions about ${category}.
 Return STRICT JSON ONLY with NO prose, NO markdown, NO code fences.
 Ensure questions are diverse and non-repetitive. Vary phrasing, subtopics, and difficulty within the band.
@@ -22,32 +22,31 @@ Return a JSON array of 10 objects, each with this schema:
   "explanation": string
 }`
 
-    // Perplexity API key from environment or provided fallback
-    const apiKey = process.env.PPLX_API_KEY || "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"
+    // OpenAI API key
+    const apiKey = process.env.OPENAI_API_KEY || "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"
 
-    const callPerplexity = async (model: string, temp = 0.5) => {
+    const callOpenAI = async (model: string) => {
       if (!apiKey) {
         return { ok: false, status: 0, content: "" as string }
       }
-      const resp = await fetch("https://api.perplexity.ai/chat/completions", {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
           "Content-Type": "application/json",
-          "Accept": "application/json",
         },
         body: JSON.stringify({
           model,
           messages: [{ role: "user", content: prompt }],
           max_tokens: 2048,
-          temperature: temp,
+          temperature: 0.3,
         }),
       })
 
       if (!resp.ok) {
         let errorInfo: any = undefined
         try { errorInfo = await resp.json() } catch {}
-        console.error("Perplexity API error:", resp.status, errorInfo || (await resp.text?.()))
+        console.error("OpenAI API error:", resp.status, errorInfo || (await resp.text?.()))
         return { ok: false, status: resp.status, content: "" as string }
       }
       const data = await resp.json()
@@ -55,11 +54,11 @@ Return a JSON array of 10 objects, each with this schema:
       return { ok: true, status: 200, content }
     }
 
-    // First attempt with a capable model
-    let p = await callPerplexity("sonar-pro", 0.2)
-    // Retry with alternate models if needed
-    if (!p.ok || !p.content) p = await callPerplexity("sonar", 0.2)
-    if (!p.ok || !p.content) p = await callPerplexity("pplx-70b-online", 0.2)
+    // Try OpenAI models that are excellent at instruction following
+    let p = await callOpenAI("gpt-3.5-turbo")
+    // Retry with GPT-4 if available
+    if (!p.ok || !p.content) p = await callOpenAI("gpt-4")
+    if (!p.ok || !p.content) p = await callOpenAI("gpt-3.5-turbo-16k")
 
     let content = p.content || ""
 
@@ -81,7 +80,7 @@ Return a JSON array of 10 objects, each with this schema:
           question: String(obj?.question ?? "Failed to generate question."),
           options,
           correctAnswer,
-          timeLimit: Number(timePerQuestion) || 30,
+          timeLimit: Number(timePerQuestion) || 10,
           explanation: String(obj?.explanation ?? derivedExplanation),
         }
       }
@@ -201,7 +200,7 @@ Return a JSON array of 10 objects, each with this schema:
             question: item.question,
             options: opts,
             correctAnswer: newCorrect,
-            timeLimit: Number(timePerQuestion) || 30,
+            timeLimit: Number(timePerQuestion) || 10,
             explanation: item.explanation,
           })
         }
@@ -216,7 +215,7 @@ Return a JSON array of 10 objects, each with this schema:
       quiz: {
         id: (globalThis as any).crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2),
         category,
-        timePerQuestion: Number(timePerQuestion) || 30,
+        timePerQuestion: Number(timePerQuestion) || 10,
         questions,
       },
     }
@@ -225,7 +224,7 @@ Return a JSON array of 10 objects, each with this schema:
     if (process.env.NODE_ENV !== 'production') {
       responsePayload.debug = {
         hadApiKey: Boolean(apiKey),
-        usedModel: p.ok ? (content ? (content.length > 0 ? "resolved" : "empty_content") : "no_content") : "failed",
+        usedModel: p.ok ? (content ? (content.length > 0 ? "openai_resolved" : "empty_content") : "no_content") : "failed",
         fallbackUsed: needsLocalFallback,
         rawContentBytes: typeof content === 'string' ? content.length : 0,
         parsedType: Array.isArray(parsed) ? 'array' : typeof parsed,
