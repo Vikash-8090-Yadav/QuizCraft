@@ -75,7 +75,7 @@ export async function POST(req: NextRequest) {
     const rows = results.map((r: any) => ({
       game_id: gameId,
       lobby_id: lobbyId,
-      player_address: r.player_address,
+      player_address: typeof r.player_address === 'string' ? r.player_address.toLowerCase() : r.player_address,
       score: Number(r.score || 0),
       correct_answers: Number(r.correct_answers || 0),
       total_questions: Number(r.total_questions || 0),
