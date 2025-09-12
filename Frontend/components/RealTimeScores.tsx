@@ -354,26 +354,7 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
               </div>
             )}
 
-            {/* Action Buttons for Finished Game */}
-            {gameState === 'finished' && (
-              <div className="mt-6 flex gap-4 justify-center">
-                <Button
-                  onClick={() => window.location.reload()}
-                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white px-6 py-2"
-                >
-                  <Zap className="h-4 w-4 mr-2" />
-                  Play Again
-                </Button>
-                <Button
-                  onClick={() => window.location.href = `/arena`}
-                  variant="outline"
-                  className="px-6 py-2"
-                >
-                  <Users className="h-4 w-4 mr-2" />
-                  Back to Arena
-                </Button>
-              </div>
-            )}
+            {/* No action buttons post-game as requested */}
           </div>
         )}
       </CardContent>
