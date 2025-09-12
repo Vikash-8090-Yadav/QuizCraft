@@ -38,6 +38,13 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         address creator;       // Who created the lobby
     }
 
+    // Member structure for efficient tracking
+    struct Member {
+        address memberAddress;
+        bool isActive;
+        uint256 joinedAt;
+    }
+
     // Mappings for data storage
     mapping(uint256 => Lobby) public lobbies;
     mapping(address => uint256) public pendingReturns; // For user withdrawals
@@ -46,6 +53,10 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
     mapping(uint256 => mapping(address => uint256)) public playerScores; // lobbyId => player => score
     mapping(uint256 => address[]) public lobbyLeaderboard; // lobbyId => ranked players
     mapping(uint256 => bool) public leaderboardSet; // lobbyId => whether leaderboard is set
+
+    // Efficient membership tracking
+    mapping(uint256 => mapping(address => Member)) public lobbyMembers; // lobbyId => player => Member
+    mapping(uint256 => address[]) public lobbyMemberAddresses; // lobbyId => array of member addresses
 
     uint256 public nextLobbyId; // Counter for lobby IDs
 
@@ -138,6 +149,15 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         lobby.playerCount++;
         lobby.prizePool += msg.value;
 
+        // Add to efficient membership tracking
+        Member memory member = Member({
+            memberAddress: msg.sender,
+            isActive: true,
+            joinedAt: block.timestamp
+        });
+        lobbyMembers[_lobbyId][msg.sender] = member;
+        lobbyMemberAddresses[_lobbyId].push(msg.sender);
+
         emit PlayerJoined(_lobbyId, msg.sender);
 
         // Check if lobby is now full
@@ -170,6 +190,23 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         }
 
         emit ScoresSubmitted(_lobbyId, _players, _scores);
+    }
+
+    /**
+     * @dev Allows a player to submit their own score for a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @param _score The player's score.
+     */
+    function submitMyScore(uint256 _lobbyId, uint256 _score) external validLobby(_lobbyId) {
+        Lobby storage lobby = lobbies[_lobbyId];
+        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for scores");
+        require(isPlayerInLobby(_lobbyId, msg.sender), "Player not in lobby");
+        require(playerScores[_lobbyId][msg.sender] == 0, "Score already submitted");
+
+        // Store the player's score
+        playerScores[_lobbyId][msg.sender] = _score;
+
+        emit ScoresSubmitted(_lobbyId, [msg.sender], [_score]);
     }
 
     /**
@@ -236,6 +273,11 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         lobby.status = LobbyStatus.CANCELLED;
         pendingReturns[msg.sender] += lobby.entryFee;
 
+        // Mark member as inactive
+        if (lobbyMembers[_lobbyId][msg.sender].isActive) {
+            lobbyMembers[_lobbyId][msg.sender].isActive = false;
+        }
+
         emit LobbyCancelled(_lobbyId);
     }
 
@@ -261,6 +303,12 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
      * @return True if the player is in the lobby, false otherwise.
      */
     function isPlayerInLobby(uint256 _lobbyId, address _player) public view validLobby(_lobbyId) returns (bool) {
+        // First check the efficient mapping
+        if (lobbyMembers[_lobbyId][_player].isActive) {
+            return true;
+        }
+        
+        // Fallback to original array check for backward compatibility
         Lobby storage lobby = lobbies[_lobbyId];
         for (uint256 i = 0; i < lobby.players.length; i++) {
             if (lobby.players[i] == _player) {
@@ -277,6 +325,42 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
      */
     function getPlayersInLobby(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
         return lobbies[_lobbyId].players;
+    }
+
+    /**
+     * @dev Gets the list of active members in a lobby using efficient mapping.
+     * @param _lobbyId The ID of the lobby.
+     * @return An array of active member addresses.
+     */
+    function getActiveMembers(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
+        address[] memory allMembers = lobbyMemberAddresses[_lobbyId];
+        address[] memory activeMembers = new address[](allMembers.length);
+        uint256 activeCount = 0;
+        
+        for (uint256 i = 0; i < allMembers.length; i++) {
+            if (lobbyMembers[_lobbyId][allMembers[i]].isActive) {
+                activeMembers[activeCount] = allMembers[i];
+                activeCount++;
+            }
+        }
+        
+        // Resize array to actual active count
+        address[] memory result = new address[](activeCount);
+        for (uint256 i = 0; i < activeCount; i++) {
+            result[i] = activeMembers[i];
+        }
+        
+        return result;
+    }
+
+    /**
+     * @dev Gets member information for a specific player in a lobby.
+     * @param _lobbyId The ID of the lobby.
+     * @param _player The address of the player.
+     * @return Member struct with player details.
+     */
+    function getMemberInfo(uint256 _lobbyId, address _player) external view validLobby(_lobbyId) returns (Member memory) {
+        return lobbyMembers[_lobbyId][_player];
     }
 
     /**
