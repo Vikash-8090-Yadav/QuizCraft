@@ -64,8 +64,9 @@ export async function GET(req: NextRequest) {
 
     // Combine players with their scores (take highest score if multiple entries)
     const allPlayersWithScores = playersList.map(playerAddress => {
+      const normalized = playerAddress.toLowerCase()
       const playerResults = gameResults.filter(result => 
-        result.player_address.toLowerCase() === playerAddress.toLowerCase()
+        (result.player_address || '').toLowerCase() === normalized
       )
       
       // If player has multiple scores, take the highest one
