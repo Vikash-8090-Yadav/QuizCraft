@@ -5,7 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Clock, Trophy, Users, Zap } from 'lucide-react';
+import { Clock, Trophy, Users, Zap, Shield } from 'lucide-react';
+import { ethers } from 'ethers';
+import QuizProgress from './QuizProgress';
+import FinalLeaderboard from './FinalLeaderboard';
 
 interface QuizQuestion {
   id: string;
@@ -27,6 +30,7 @@ interface QuizGameProps {
   startTimestampSec: number; // on-chain createdAt + countdown
   questionDurationSec: number; // per-question duration
   seed: string; // deterministic quiz seed
+  currentPlayerAddress: string; // connected wallet address to credit scores
 }
 
 interface GameResult {
@@ -37,7 +41,7 @@ interface GameResult {
   timeBonus: number;
 }
 
-export default function QuizGame({ lobbyId, players, category, onGameEnd, onScoreUpdate, startTimestampSec, questionDurationSec, seed }: QuizGameProps) {
+export default function QuizGame({ lobbyId, players, category, onGameEnd, onScoreUpdate, startTimestampSec, questionDurationSec, seed, currentPlayerAddress }: QuizGameProps) {
   const [gameState, setGameState] = useState<'waiting' | 'countdown' | 'playing' | 'finished'>('waiting');
   const [countdown, setCountdown] = useState(10);
   const [currentQuestion, setCurrentQuestion] = useState(0);
@@ -50,55 +54,171 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
   const [questionSource, setQuestionSource] = useState<'ai' | 'fallback' | null>(null);
   const [quizStartedAt, setQuizStartedAt] = useState<number | null>(null);
   const [quizEndedAt, setQuizEndedAt] = useState<number | null>(null);
+  const [gameProtectionActive, setGameProtectionActive] = useState(false);
 
   // Hydrate persisted scores
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(`quizcraft:scores:${lobbyId}`)
-      if (raw) setPlayerScores(JSON.parse(raw))
-    } catch {}
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        console.log('Hydrating scores from sessionStorage:', parsed)
+        setPlayerScores(parsed)
+      }
+    } catch (e) {
+      console.error('Error hydrating scores:', e)
+    }
   }, [lobbyId])
 
   // Persist scores
   useEffect(() => {
     try {
+      console.log('Persisting scores to sessionStorage:', playerScores)
       sessionStorage.setItem(`quizcraft:scores:${lobbyId}`, JSON.stringify(playerScores))
-    } catch {}
+    } catch (e) {
+      console.error('Error persisting scores:', e)
+    }
   }, [lobbyId, playerScores])
+
+  // Generate quiz once when component mounts
+  useEffect(() => {
+    if (questions.length === 0) {
+      generateQuiz()
+    }
+  }, []) // Empty dependency array - run only once
 
   // Initialize game phase based on startTimestampSec
   useEffect(() => {
     const tick = () => {
       const nowSec = Math.floor(Date.now() / 1000)
-      if (questions.length === 0) {
-        // lazily generate quiz once
-        generateQuiz()
-      }
+      
       if (nowSec < startTimestampSec) {
         setGameState('countdown')
         setCountdown(Math.max(0, startTimestampSec - nowSec))
-      } else if (questions.length > 0) {
-        const elapsed = nowSec - startTimestampSec
-        const qIndex = Math.floor(elapsed / questionDurationSec)
-        if (qIndex >= questions.length) {
-          if (gameState !== 'finished') endGame()
-          return
-        }
-        setGameState('playing')
-        setCurrentQuestion(qIndex)
-        const rem = questionDurationSec - (elapsed % questionDurationSec)
-        setTimeLeft(rem)
+        return
       }
+
+      if (questions.length === 0) return
+
+      const elapsed = nowSec - startTimestampSec
+      const desiredIndex = Math.floor(elapsed / questionDurationSec)
+
+      // If we've exceeded the total quiz time, finish once
+      if (elapsed >= questions.length * questionDurationSec) {
+        if (gameState !== 'finished') endGame()
+        return
+      }
+
+      setGameState('playing')
+
+      // Clamp advancement to at most +1 step to avoid skipping questions on timer lag
+      setCurrentQuestion(prev => {
+        const clampedNext = Math.min(prev + 1, Math.max(prev, desiredIndex))
+        // Compute remaining time relative to clampedNext question start
+        const localElapsed = Math.max(0, elapsed - clampedNext * questionDurationSec)
+        const rem = Math.max(0, questionDurationSec - (localElapsed % questionDurationSec))
+        setTimeLeft(rem)
+        return clampedNext
+      })
     }
-    const i = setInterval(tick, 1000)
+
+    const i = setInterval(tick, 250)
     tick()
     return () => clearInterval(i)
-  }, [startTimestampSec, questionDurationSec, questions.length])
+  }, [startTimestampSec, questionDurationSec, questions.length, gameState])
 
   // Emit live score reset at game start
   useEffect(() => {
     if (gameState === 'playing' && onScoreUpdate) onScoreUpdate(playerScores)
   }, [gameState])
+
+  // Game protection - prevent navigation during active game
+  useEffect(() => {
+    const isGameActive = gameState === 'playing' || gameState === 'countdown';
+    setGameProtectionActive(isGameActive);
+
+    if (isGameActive) {
+      // Prevent page refresh
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = 'Are you sure you want to leave? Your progress will be lost!';
+        return 'Are you sure you want to leave? Your progress will be lost!';
+      };
+
+      // Prevent back button
+      const handlePopState = (e: PopStateEvent) => {
+        if (isGameActive) {
+          e.preventDefault();
+          window.history.pushState(null, '', window.location.href);
+          alert('Cannot go back during the quiz! Please complete the game first.');
+        }
+      };
+
+      // Add event listeners
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      window.addEventListener('popstate', handlePopState);
+      
+      // Push a state to prevent back button
+      window.history.pushState(null, '', window.location.href);
+
+      // Disable right-click context menu
+      const handleContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      // Disable F5, Ctrl+R, Ctrl+Shift+R, DevTools shortcuts
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'F5' || 
+            (e.ctrlKey && e.key === 'r') || 
+            (e.ctrlKey && e.shiftKey && e.key === 'R') ||
+            (e.ctrlKey && e.key === 'w') ||
+            (e.altKey && e.key === 'ArrowLeft') ||
+            (e.ctrlKey && e.shiftKey && e.key === 'I') || // DevTools
+            (e.ctrlKey && e.shiftKey && e.key === 'C') || // DevTools
+            (e.ctrlKey && e.shiftKey && e.key === 'J') || // Console
+            (e.ctrlKey && e.key === 'u') || // View source
+            (e.key === 'F12')) { // DevTools
+          e.preventDefault();
+          alert('Please complete the quiz before refreshing or closing the page!');
+          return false;
+        }
+      };
+
+      document.addEventListener('contextmenu', handleContextMenu);
+      document.addEventListener('keydown', handleKeyDown);
+
+      // Add visual protection overlay
+      const overlay = document.createElement('div');
+      overlay.id = 'quiz-protection-overlay';
+      overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.02);
+        pointer-events: none;
+        z-index: 9999;
+        display: none;
+      `;
+      document.body.appendChild(overlay);
+
+      // Cleanup function
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+        window.removeEventListener('popstate', handlePopState);
+        document.removeEventListener('contextmenu', handleContextMenu);
+        document.removeEventListener('keydown', handleKeyDown);
+        
+        // Remove overlay
+        const existingOverlay = document.getElementById('quiz-protection-overlay');
+        if (existingOverlay) {
+          existingOverlay.remove();
+        }
+      };
+    }
+  }, [gameState]);
 
   // timeLeft derived by main tick; no separate timer needed
 
@@ -153,6 +273,9 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
           options: ['A', 'B', 'C', 'D'],
           correctAnswer: 0,
           timeLimit: 30,
+          explanation: 'The correct answer is "A".',
+          category: category || 'General',
+          difficulty: 'easy' as const,
         };
         setQuestions([placeholder]);
         setTimeLeft(placeholder.timeLimit);
@@ -167,6 +290,9 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
         options: ['A', 'B', 'C', 'D'],
         correctAnswer: 0,
         timeLimit: questionDurationSec,
+        explanation: 'The correct answer is "A".',
+        category: category || 'General',
+        difficulty: 'easy' as const,
       };
       setQuestions([placeholder]);
       setTimeLeft(placeholder.timeLimit);
@@ -182,17 +308,31 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
     
     // Calculate score
     const isCorrect = answerIndex === questions[currentQuestion].correctAnswer;
-    const timeBonus = Math.floor(timeLeft / 5); // Bonus points for speed
-    // Negative marking: -25 for wrong answers; score cannot go below 0 overall
-    const base = isCorrect ? 100 : -25;
-    const points = Math.max(0, base + (isCorrect ? timeBonus : 0));
+    const timeBonus = Math.floor(timeLeft / 5); // Bonus points for speed (0-2 points)
+    // Scoring: 100 points for correct answer + time bonus, -25 for wrong answer
+    const points = isCorrect ? (100 + timeBonus) : -25;
     
-    // Update scores (in real implementation, this would be sent to server)
+    // Update scores for the connected player
     setPlayerScores(prev => {
       const next = { ...prev }
-      const current = next[players[0]] || 0
-      const newScore = Math.max(0, current + (isCorrect ? (100 + timeBonus) : -25))
-      next[players[0]] = newScore
+      
+      // Find existing key with case-insensitive matching
+      let existingKey = null;
+      for (const key of Object.keys(next)) {
+        if (key.toLowerCase() === currentPlayerAddress.toLowerCase()) {
+          existingKey = key;
+          break;
+        }
+      }
+      
+      // Use existing key if found, otherwise use currentPlayerAddress
+      const playerKey = existingKey || currentPlayerAddress;
+      const current = next[playerKey] || 0
+      const newScore = Math.max(0, current + points) // Ensure score never goes below 0
+      next[playerKey] = newScore
+      
+      console.log(`Score update for ${playerKey}: +${points} = ${newScore} (was ${current})`)
+      console.log('Updated playerScores:', next)
       if (onScoreUpdate) onScoreUpdate(next)
       return next
     });
@@ -212,111 +352,327 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
     setGameState('finished');
     setQuizEndedAt(Date.now());
     
-    // Calculate final results
-    const results: GameResult[] = players.map(player => ({
-      player,
-      score: playerScores[player] || 0,
-      correctAnswers: Math.floor((playerScores[player] || 0) / 100),
-      totalQuestions: questions.length,
-      timeBonus: Math.floor((playerScores[player] || 0) % 100)
-    }));
+    console.log('=== ENDGAME DEBUG ===');
+    console.log('currentPlayerAddress:', currentPlayerAddress);
+    console.log('playerScores state:', playerScores);
+    console.log('players array:', players);
+    
+    // Get the most recent scores from sessionStorage as backup
+    let backupScores = {};
+    try {
+      const raw = sessionStorage.getItem(`quizcraft:scores:${lobbyId}`)
+      if (raw) {
+        backupScores = JSON.parse(raw)
+        console.log('Backup scores from sessionStorage:', backupScores)
+      }
+    } catch (e) {
+      console.error('Error getting backup scores:', e)
+    }
+    
+    // Use playerScores if available, otherwise use backup scores
+    const scoresToUse = Object.keys(playerScores).length > 0 ? playerScores : backupScores;
+    console.log('Using scores:', scoresToUse);
+    
+    // If we found backup scores and playerScores is empty, restore them
+    if (Object.keys(playerScores).length === 0 && Object.keys(backupScores).length > 0) {
+      console.log('Restoring scores from backup');
+      setPlayerScores(backupScores);
+    }
+    
+    // Calculate final results - use current player's score and create results for all players
+    // Try to find the current player's score with case-insensitive matching
+    let currentPlayerScore = 0;
+    let foundKey = null;
+    
+    for (const [key, score] of Object.entries(scoresToUse)) {
+      if (key.toLowerCase() === currentPlayerAddress.toLowerCase()) {
+        currentPlayerScore = Number(score);
+        foundKey = key;
+        break;
+      }
+    }
+    
+    console.log('Found key:', foundKey);
+    console.log('currentPlayerScore:', currentPlayerScore);
+    
+    const currentPlayerCorrectAnswers = Math.floor(currentPlayerScore / 100);
+    const currentPlayerTimeBonus = currentPlayerScore % 100;
+    
+    console.log('currentPlayerCorrectAnswers:', currentPlayerCorrectAnswers);
+    console.log('currentPlayerTimeBonus:', currentPlayerTimeBonus);
+    
+    const results: GameResult[] = players.map(player => {
+      if (player.toLowerCase() === currentPlayerAddress.toLowerCase()) {
+        // Current player - use actual score
+        return {
+          player,
+          score: currentPlayerScore,
+          correctAnswers: currentPlayerCorrectAnswers,
+          totalQuestions: questions.length,
+          timeBonus: currentPlayerTimeBonus
+        };
+      } else {
+        // Other players - use 0 for now (they'll have their own scores)
+        return {
+          player,
+          score: 0,
+          correctAnswers: 0,
+          totalQuestions: questions.length,
+          timeBonus: 0
+        };
+      }
+    });
+    
+    // Only log current player's result
+    const currentPlayerResult = results.find(r => r.player.toLowerCase() === currentPlayerAddress.toLowerCase());
+    console.log('Current player result:', currentPlayerResult);
+    console.log('Current player score:', currentPlayerScore);
     
     setGameResults(results);
     onGameEnd(results);
     
-    // Post score and time taken for the first player (demo)
+    // Post score and time taken for the connected player
     const totalMs = (Date.now() - (quizStartedAt || Date.now()));
     const timeTakenSeconds = Math.max(0, Math.round(totalMs / 1000));
     fetch('/api/submit-score', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        score: results[0]?.score || 0,
+        score: currentPlayerScore,
         category: category || 'Technology',
         timeTakenSeconds,
       })
     }).catch(() => {});
 
-    // Submit scores to smart contract for leaderboard
+    // Send scores to Supabase (primary) and store locally as fallback
     try {
-      const playerAddresses = results.map(r => r.player);
-      const scores = results.map(r => r.score);
-      
-      const response = await fetch('/api/submit-scores', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
-        },
-        body: JSON.stringify({
-          lobbyId: lobbyId,
-          players: playerAddresses,
-          scores: scores
-        })
-      });
-
-      if (response.ok) {
-        console.log('Scores submitted to smart contract');
+      // POST to Supabase API
+      try {
+        // Send only current player's result to Supabase
+        const currentPlayerData = {
+          player_address: currentPlayerAddress,
+          score: currentPlayerScore,
+          correct_answers: currentPlayerCorrectAnswers,
+          total_questions: questions.length,
+          time_bonus: currentPlayerTimeBonus
+        };
         
-        // Set leaderboard (ranked by score)
-        const sortedResults = results.sort((a, b) => b.score - a.score);
-        const leaderboard = sortedResults.map(r => r.player);
-        
-        const leaderboardResponse = await fetch('/api/set-leaderboard', {
+        await fetch('/api/scores/upsert', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            lobbyId: lobbyId,
-            leaderboard: leaderboard
+            lobbyId: Number(lobbyId),
+            results: [currentPlayerData]
           })
-        });
-
-        if (leaderboardResponse.ok) {
-          console.log('Leaderboard set in smart contract');
-        } else {
-          console.error('Failed to set leaderboard');
-        }
-      } else {
-        console.error('Failed to submit scores to smart contract');
+        })
+      } catch (e) {
+        console.error('Supabase upsert failed, will rely on local fallback', e)
       }
+
+      // Local fallback for GM consolidation and UI
+      // Create comprehensive score data for all players
+      const allPlayerScores: { [key: string]: number } = {};
+      const allPlayerResults: any[] = [];
+      
+      // Add current player's actual score
+      allPlayerScores[currentPlayerAddress] = currentPlayerScore;
+      allPlayerResults.push({
+        player: currentPlayerAddress,
+        score: currentPlayerScore,
+        correctAnswers: currentPlayerCorrectAnswers,
+        totalQuestions: questions.length,
+        timeBonus: currentPlayerTimeBonus,
+        isCurrentPlayer: true
+      });
+      
+      // Add other players with placeholder scores (they'll submit their own)
+      players.forEach(player => {
+        if (player.toLowerCase() !== currentPlayerAddress.toLowerCase()) {
+          allPlayerScores[player] = 0; // Placeholder - will be updated when they submit
+          allPlayerResults.push({
+            player: player,
+            score: 0,
+            correctAnswers: 0,
+            totalQuestions: questions.length,
+            timeBonus: 0,
+            isCurrentPlayer: false
+          });
+        }
+      });
+      
+      const scoresData = {
+        lobbyId: lobbyId,
+        players: players,
+        scores: players.map(p => allPlayerScores[p] || 0),
+        allPlayerScores: allPlayerScores, // Store individual scores by address
+        detailedResults: allPlayerResults,
+        timestamp: Date.now(),
+        status: 'pending', // pending, submitted, confirmed
+        gameEndedAt: Date.now(),
+        totalQuestions: questions.length,
+        category: category || 'Technology',
+        currentPlayerAddress: currentPlayerAddress,
+        currentPlayerScore: currentPlayerScore
+      };
+      
+      // Store in localStorage for the lobby owner to retrieve
+      localStorage.setItem(`quizcraft:lobby-scores:${lobbyId}`, JSON.stringify(scoresData));
+      console.log('All players scores stored locally for lobby owner to update:', scoresData);
+      
+      // Also store in sessionStorage for immediate display
+      sessionStorage.setItem(`quizcraft:local-scores:${lobbyId}`, JSON.stringify(scoresData));
+      
+      // Store individual player scores for debugging
+      results.forEach(result => {
+        const playerKey = `quizcraft:player-score:${lobbyId}:${result.player}`;
+        localStorage.setItem(playerKey, JSON.stringify({
+          player: result.player,
+          score: result.score,
+          correctAnswers: result.correctAnswers,
+          totalQuestions: result.totalQuestions,
+          timeBonus: result.timeBonus,
+          timestamp: Date.now()
+        }));
+      });
+      
+      // Also store current player's score separately for easy access
+      const currentPlayerKey = `quizcraft:current-player-score:${lobbyId}:${currentPlayerAddress}`;
+      localStorage.setItem(currentPlayerKey, JSON.stringify({
+        player: currentPlayerAddress,
+        score: currentPlayerScore,
+        correctAnswers: currentPlayerCorrectAnswers,
+        totalQuestions: questions.length,
+        timeBonus: currentPlayerTimeBonus,
+        timestamp: Date.now()
+      }));
+      
+      // Store individual player contribution for merging with other players
+      const playerContributionKey = `quizcraft:player-contribution:${lobbyId}:${currentPlayerAddress}`;
+      localStorage.setItem(playerContributionKey, JSON.stringify({
+        player: currentPlayerAddress,
+        score: currentPlayerScore,
+        correctAnswers: currentPlayerCorrectAnswers,
+        totalQuestions: questions.length,
+        timeBonus: currentPlayerTimeBonus,
+        timestamp: Date.now(),
+        gameEndedAt: Date.now()
+      }));
+      
+      // Try to merge with existing lobby scores from other players
+      try {
+        const existingLobbyScores = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`);
+        if (existingLobbyScores) {
+          const existingData = JSON.parse(existingLobbyScores);
+          // Update the existing data with current player's score
+          if (existingData.allPlayerScores) {
+            existingData.allPlayerScores[currentPlayerAddress] = currentPlayerScore;
+            existingData.scores = existingData.players.map((p: string) => existingData.allPlayerScores[p] || 0);
+            existingData.detailedResults = existingData.detailedResults.map((result: any) => 
+              result.player.toLowerCase() === currentPlayerAddress.toLowerCase() 
+                ? { ...result, score: currentPlayerScore, correctAnswers: currentPlayerCorrectAnswers, timeBonus: currentPlayerTimeBonus }
+                : result
+            );
+            localStorage.setItem(`quizcraft:lobby-scores:${lobbyId}`, JSON.stringify(existingData));
+            console.log('Updated existing lobby scores with current player:', existingData);
+          }
+        }
+      } catch (e) {
+        console.error('Error merging with existing scores:', e);
+      }
+      
     } catch (error) {
-      console.error('Error submitting scores to smart contract:', error);
+      console.error('Error storing scores locally:', error);
     }
   };
 
   if (gameState === 'waiting') {
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardContent className="p-8 text-center">
-          <Users className="h-16 w-16 text-blue-500 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold mb-4">Waiting for Players</h2>
-          <p className="text-muted-foreground mb-4">
-            {players.length} / 4 players joined
-          </p>
-          <div className="flex justify-center gap-2">
-            {players.map((player, index) => (
-              <Badge key={index} variant="outline">
-                {player.slice(0, 6)}...{player.slice(-4)}
-              </Badge>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="w-full max-w-3xl mx-auto space-y-6">
+        {/* Title shimmer */}
+        <Card className="overflow-hidden">
+          <CardContent className="p-8">
+            <div className="relative overflow-hidden">
+              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_1.6s_infinite]" />
+              <div className="flex items-center justify-between">
+                <div className="space-y-3">
+                  <div className="h-7 w-48 bg-muted rounded" />
+                  <div className="h-4 w-64 bg-muted/80 rounded" />
+                </div>
+                <div className="h-12 w-28 bg-muted rounded-lg" />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Players shimmer */}
+        <Card className="overflow-hidden">
+          <CardContent className="p-6">
+            <div className="relative overflow-hidden">
+              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[shimmer_1.6s_infinite]" />
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-10 w-10 rounded-lg bg-muted" />
+                <div className="h-5 w-40 bg-muted rounded" />
+                <div className="ml-auto h-5 w-28 bg-muted rounded" />
+              </div>
+              <div className="space-y-3">
+                {[0,1,2,3].map((i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-muted" />
+                      <div className="h-4 w-32 bg-muted rounded" />
+                    </div>
+                    <div className="h-4 w-16 bg-muted rounded" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Footer action shimmer */}
+        <Card className="overflow-hidden">
+          <CardContent className="p-8 text-center">
+            <div className="relative overflow-hidden">
+              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/15 to-transparent animate-[shimmer_1.6s_infinite]" />
+              <div className="mx-auto h-11 w-44 bg-muted rounded-lg" />
+            </div>
+          </CardContent>
+        </Card>
+        <style jsx global>{`
+          @keyframes shimmer { 100% { transform: translateX(100%); } }
+        `}</style>
+      </div>
     );
   }
 
   if (gameState === 'countdown') {
     return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardContent className="p-8 text-center">
-          <div className="text-6xl font-bold text-accent mb-4">{countdown}</div>
-          <h2 className="text-2xl font-bold mb-4">Game Starting Soon!</h2>
-          <p className="text-muted-foreground">Get ready for the quiz battle!</p>
-        </CardContent>
-      </Card>
+      <div className="w-full max-w-2xl mx-auto space-y-4">
+        {/* Game Protection Indicator */}
+        {gameProtectionActive && (
+          <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 text-orange-700 dark:text-orange-300">
+                <Shield className="h-5 w-5" />
+                <div className="flex-1">
+                  <p className="font-medium">Game Protection Active</p>
+                  <p className="text-sm opacity-80">
+                    Page refresh, back button, and navigation are disabled during the quiz to protect your progress.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        
+        <Card>
+          <CardContent className="p-8 text-center">
+            <div className="text-6xl font-bold text-accent mb-4">{countdown}</div>
+            <h2 className="text-2xl font-bold mb-4">Game Starting Soon!</h2>
+            <p className="text-muted-foreground">Get ready for the quiz battle!</p>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -326,24 +682,33 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
 
     return (
       <div className="w-full max-w-4xl mx-auto space-y-6">
-        {/* Progress Bar */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium">Question {currentQuestion + 1} of {questions.length}</span>
-              <div className="flex items-center gap-2">
-                {questionSource && (
-                  <Badge variant={questionSource === 'ai' ? 'default' : 'outline'}>
-                    Source: {questionSource === 'ai' ? 'AI' : 'Fallback'}
-                  </Badge>
-                )}
-                <Clock className="h-4 w-4" />
-                <span className="text-sm font-medium">{timeLeft}s</span>
+        {/* Game Protection Indicator */}
+        {gameProtectionActive && (
+          <Card className="border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3 text-orange-700 dark:text-orange-300">
+                <Shield className="h-5 w-5" />
+                <div className="flex-1">
+                  <p className="font-medium">Game Protection Active</p>
+                  <p className="text-sm opacity-80">
+                    Page refresh, back button, and navigation are disabled during the quiz to protect your progress.
+                  </p>
+                </div>
               </div>
-            </div>
-            <Progress value={progress} className="h-2" />
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
+        {/* Personal Progress Component */}
+        <QuizProgress
+          currentQuestion={currentQuestion + 1}
+          totalQuestions={questions.length}
+          playerScore={playerScores[currentPlayerAddress] || 0}
+          timeRemaining={timeLeft}
+          questionDuration={questionDurationSec}
+          playersFinished={Object.keys(playerScores).length}
+          totalPlayers={players.length}
+          isLastQuestion={currentQuestion === questions.length - 1}
+        />
 
         {/* Question Card */}
         <Card>
@@ -386,68 +751,16 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
           </Card>
         )}
 
-        {/* Live Leaderboard */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="h-5 w-5" />
-              Live Scores
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {Object.entries(playerScores)
-                .sort(([,a], [,b]) => b - a)
-                .map(([player, score]) => (
-                  <div key={player} className="flex justify-between items-center">
-                    <span className="text-sm">{player.slice(0, 6)}...{player.slice(-4)}</span>
-                    <Badge variant="outline">{score} pts</Badge>
-                  </div>
-                ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
     );
   }
 
   if (gameState === 'finished') {
-    const winner = gameResults.reduce((prev, current) => 
-      prev.score > current.score ? prev : current
-    );
-
-    return (
-      <Card className="w-full max-w-2xl mx-auto">
-        <CardHeader className="text-center">
-          <Trophy className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
-          <CardTitle className="text-2xl">Game Finished!</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="text-center">
-            <h3 className="text-lg font-semibold text-green-600 mb-2">🏆 Winner</h3>
-            <p className="text-xl font-bold">{winner.player.slice(0, 6)}...{winner.player.slice(-4)}</p>
-            <p className="text-muted-foreground">{winner.score} points</p>
-          </div>
-          
-          <div className="space-y-2">
-            <h4 className="font-semibold">Final Results:</h4>
-            {gameResults
-              .sort((a, b) => b.score - a.score)
-              .map((result, index) => (
-                <div key={result.player} className="flex justify-between items-center p-2 bg-muted/50 rounded">
-                  <span className="text-sm">
-                    #{index + 1} {result.player.slice(0, 6)}...{result.player.slice(-4)}
-                  </span>
-                  <Badge variant={index === 0 ? "default" : "outline"}>
-                    {result.score} pts
-                  </Badge>
-                </div>
-              ))}
-          </div>
-        </CardContent>
-      </Card>
-    );
+    // Don't render anything here - let the parent component handle the finished state
+    // The RealTimeScores component will show the final leaderboard
+    return null;
   }
+
 
   return null;
 }
