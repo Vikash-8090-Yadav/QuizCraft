@@ -5,7 +5,7 @@ import { useWeb3 } from "./Web3Provider"
 import { CONFLUX_TESTNET } from "@/lib/constants"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Wallet, Trophy, Gamepad2, ImageIcon, Menu, X, Sparkles } from "lucide-react"
+import { Wallet, Trophy, Gamepad2, BarChart3, Menu, X, Sparkles } from "lucide-react"
 import { useState } from "react"
 
 export function Navbar() {
@@ -58,11 +58,11 @@ export function Navbar() {
               Live Arena
             </Link>
             <Link
-              href="/nfts"
+              href="/leaderboard"
               className="text-foreground/70 hover:text-accent transition-all duration-300 flex items-center gap-2 font-medium hover:scale-105"
             >
-              <ImageIcon className="h-4 w-4" />
-              NFT Gallery
+              <BarChart3 className="h-4 w-4" />
+              Leaderboard
             </Link>
           </div>
 
@@ -127,12 +127,12 @@ export function Navbar() {
                 Live Arena
               </Link>
               <Link
-                href="/nfts"
+                href="/leaderboard"
                 className="text-foreground/70 hover:text-accent transition-colors flex items-center gap-2 font-medium"
                 onClick={() => setMobileMenuOpen(false)}
               >
-                <ImageIcon className="h-4 w-4" />
-                NFT Gallery
+                <BarChart3 className="h-4 w-4" />
+                Leaderboard
               </Link>
             </div>
           </div>
