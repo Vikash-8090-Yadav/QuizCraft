@@ -1,12 +1,12 @@
 export const CONTRACT_ADDRESSES = {
   QUIZ_CRAFT_ARENA:
     process.env.NEXT_PUBLIC_QUIZ_CRAFT_ARENA_ADDRESS ||
-    // Deployed QuizCraftArena contract on Conflux eSpace (Enhanced with score tracking and leaderboard)
-    "0x6AB6AA764FAf9f58dbd8F54862EcD469c805F08c",
+    // Deployed QuizCraftArena contract on Conflux eSpace (Enhanced with efficient membership tracking)
+    "0xCD8f8893604BddFf005B06ECD5D60cD485c84094",
   QUIZ_CRAFT_NFT: process.env.NEXT_PUBLIC_QUIZ_CRAFT_NFT_ADDRESS || "0x0987654321098765432109876543210987654321",
 }
 
-// ABI generated from the compiled QuizCraftArena artifact (SamrtContract/artifacts/contracts/Quiz.sol/QuizCraftArena.json)
+// ABI from the latest deployed QuizCraftArena contract (SamrtContract/artifacts/contracts/Quiz.sol/QuizCraftArena.json)
 export const QUIZ_CRAFT_ARENA_ABI = [
   {
     "inputs": [
@@ -43,6 +43,25 @@ export const QUIZ_CRAFT_ARENA_ABI = [
       }
     ],
     "name": "GameMasterUpdated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "lobbyId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "address[]",
+        "name": "leaderboard",
+        "type": "address[]"
+      }
+    ],
+    "name": "LeaderboardSet",
     "type": "event"
   },
   {
@@ -209,25 +228,6 @@ export const QUIZ_CRAFT_ARENA_ABI = [
     "type": "event"
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "uint256",
-        "name": "lobbyId",
-        "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "address[]",
-        "name": "leaderboard",
-        "type": "address[]"
-      }
-    ],
-    "name": "LeaderboardSet",
-    "type": "event"
-  },
-  {
     "inputs": [],
     "name": "LOBBY_TIMEOUT",
     "outputs": [
@@ -308,50 +308,7 @@ export const QUIZ_CRAFT_ARENA_ABI = [
         "type": "uint256"
       }
     ],
-    "name": "getPlayersInLobby",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_player",
-        "type": "address"
-      }
-    ],
-    "name": "getPlayerScore",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getLeaderboard",
+    "name": "getActiveMembers",
     "outputs": [
       {
         "internalType": "address[]",
@@ -394,12 +351,12 @@ export const QUIZ_CRAFT_ARENA_ABI = [
         "type": "uint256"
       }
     ],
-    "name": "isLeaderboardSet",
+    "name": "getLeaderboard",
     "outputs": [
       {
-        "internalType": "bool",
+        "internalType": "address[]",
         "name": "",
-        "type": "bool"
+        "type": "address[]"
       }
     ],
     "stateMutability": "view",
@@ -413,19 +370,37 @@ export const QUIZ_CRAFT_ARENA_ABI = [
         "type": "uint256"
       },
       {
-        "internalType": "address[]",
-        "name": "_players",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_scores",
-        "type": "uint256[]"
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
       }
     ],
-    "name": "submitScores",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "name": "getMemberInfo",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "memberAddress",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "isActive",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint256",
+            "name": "joinedAt",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct QuizCraftArena.Member",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -436,14 +411,58 @@ export const QUIZ_CRAFT_ARENA_ABI = [
         "type": "uint256"
       },
       {
+        "internalType": "address",
+        "name": "_player",
+        "type": "address"
+      }
+    ],
+    "name": "getPlayerScore",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_lobbyId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getPlayersInLobby",
+    "outputs": [
+      {
         "internalType": "address[]",
-        "name": "_leaderboard",
+        "name": "",
         "type": "address[]"
       }
     ],
-    "name": "setLeaderboard",
-    "outputs": [],
-    "stateMutability": "nonpayable",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_lobbyId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isLeaderboardSet",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -481,6 +500,25 @@ export const QUIZ_CRAFT_ARENA_ABI = [
     "name": "joinLobby",
     "outputs": [],
     "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "leaderboardSet",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -558,6 +596,88 @@ export const QUIZ_CRAFT_ARENA_ABI = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "lobbyLeaderboard",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "lobbyMemberAddresses",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "lobbyMembers",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "memberAddress",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "isActive",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "joinedAt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "nextLobbyId",
     "outputs": [
@@ -616,6 +736,30 @@ export const QUIZ_CRAFT_ARENA_ABI = [
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "playerScores",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "renounceOwnership",
     "outputs": [],
@@ -636,6 +780,47 @@ export const QUIZ_CRAFT_ARENA_ABI = [
       }
     ],
     "name": "resolveGame",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_lobbyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address[]",
+        "name": "_leaderboard",
+        "type": "address[]"
+      }
+    ],
+    "name": "setLeaderboard",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_lobbyId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address[]",
+        "name": "_players",
+        "type": "address[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "_scores",
+        "type": "uint256[]"
+      }
+    ],
+    "name": "submitScores",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
