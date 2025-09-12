@@ -1,112 +1,70 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.10;
 
-// Import OpenZeppelin contracts for security and ownership
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-/**
- * @title QuizCraftArena
- * @dev Main contract for managing quiz lobbies, entry fees, and prize distributions on Conflux eSpace.
- * Uses a pull-over-push pattern for refunds to enhance security.
- */
 contract QuizCraftArena is ReentrancyGuard, Ownable {
     // ===== STATE VARIABLES =====
-    uint256 public constant LOBBY_TIMEOUT = 5 minutes; // Lobby expiry time
-    uint256 public platformFeeBps; // Platform fee in basis points (e.g., 500 = 5%)
-
-    address public gameMaster; // Trusted address to resolve games
+    uint256 public constant LOBBY_TIMEOUT = 5 minutes;
 
     // Lobby status lifecycle
-    enum LobbyStatus { OPEN, FULL, IN_PROGRESS, COMPLETED, CANCELLED }
+    enum LobbyStatus { OPEN, STARTED, IN_PROGRESS, COMPLETED, CANCELLED }
 
-    // Structure to hold all lobby data
+    // Prize distribution status
+    enum DistributionStatus { NOT_DISTRIBUTED, DISTRIBUTED }
+
     struct Lobby {
         uint256 id;
-        string name;           // Lobby name (e.g., "Lightning Duel", "Battle Royale")
-        string category;       // Quiz category (e.g., "Technology", "Crypto", "Science")
+        string name;
+        string category;
         uint256 entryFee;
         uint256 playerCount;
         uint256 maxPlayers;
         uint256 prizePool;
         uint256 createdAt;
         LobbyStatus status;
+        DistributionStatus distribution;
         address[] players;
         address winner;
-        bool prizeDistributed;
-        address creator;       // Who created the lobby
+        address creator;
     }
 
-    // Member structure for efficient tracking
-    struct Member {
-        address memberAddress;
-        bool isActive;
-        uint256 joinedAt;
-    }
-
-    // Mappings for data storage
     mapping(uint256 => Lobby) public lobbies;
-    mapping(address => uint256) public pendingReturns; // For user withdrawals
-    
-    // Score tracking
-    mapping(uint256 => mapping(address => uint256)) public playerScores; // lobbyId => player => score
-    mapping(uint256 => address[]) public lobbyLeaderboard; // lobbyId => ranked players
-    mapping(uint256 => bool) public leaderboardSet; // lobbyId => whether leaderboard is set
+    mapping(uint256 => mapping(address => uint256)) public playerScores;
+    mapping(uint256 => address[]) public lobbyLeaderboard;
+    mapping(uint256 => bool) public leaderboardSet;
 
-    // Efficient membership tracking
-    mapping(uint256 => mapping(address => Member)) public lobbyMembers; // lobbyId => player => Member
-    mapping(uint256 => address[]) public lobbyMemberAddresses; // lobbyId => array of member addresses
-
-    uint256 public nextLobbyId; // Counter for lobby IDs
+    uint256 public nextLobbyId;
 
     // ===== EVENTS =====
-    event LobbyCreated(uint256 indexed lobbyId, string name, string category, uint256 entryFee, uint256 maxPlayers, address creator);
+    event LobbyCreated(
+        uint256 indexed lobbyId,
+        string name,
+        string category,
+        uint256 entryFee,
+        uint256 maxPlayers,
+        address creator
+    );
     event PlayerJoined(uint256 indexed lobbyId, address player);
     event LobbyCompleted(uint256 indexed lobbyId, address winner, uint256 prize);
     event LobbyCancelled(uint256 indexed lobbyId);
-    event RefundClaimed(address player, uint256 amount);
-    event GameMasterUpdated(address newGameMaster);
-    event FeeUpdated(uint256 newFeeBps);
     event ScoresSubmitted(uint256 indexed lobbyId, address[] players, uint256[] scores);
     event LeaderboardSet(uint256 indexed lobbyId, address[] leaderboard);
 
     // ===== MODIFIERS =====
-    modifier onlyGameMaster() {
-        require(msg.sender == gameMaster, "Caller is not the GameMaster");
-        _;
-    }
-
     modifier validLobby(uint256 _lobbyId) {
         require(_lobbyId < nextLobbyId, "Lobby does not exist");
         _;
     }
 
-    modifier isLobbyStatus(uint256 _lobbyId, LobbyStatus _status) {
-        require(lobbies[_lobbyId].status == _status, "Lobby is not in the correct status");
+    modifier onlyLobbyCreator(uint256 _lobbyId) {
+        require(msg.sender == lobbies[_lobbyId].creator, "Only lobby creator can execute this");
         _;
     }
 
-    // ===== CONSTRUCTOR =====
-    /**
-     * @dev Initializes the contract with an initial platform fee and sets the deployer as owner and gameMaster.
-     * @param _feeBps Initial platform fee in basis points.
-     */
-    constructor(uint256 _feeBps)  {
-    platformFeeBps = _feeBps;
-    gameMaster = msg.sender;
-}
-
-    // ===== EXTERNAL & PUBLIC FUNCTIONS =====
-
-    /**
-     * @dev Allows a user to create a new game lobby.
-     * @param _name The name of the lobby (e.g., "Lightning Duel", "Battle Royale").
-     * @param _category The quiz category (e.g., "Technology", "Crypto", "Science").
-     * @param _entryFee The entry fee in CFX required to join the lobby.
-     * @param _maxPlayers The maximum number of players allowed in the lobby.
-     * @return The ID of the newly created lobby.
-     */
+    // ===== CORE FUNCTIONS =====
     function createLobby(
         string memory _name,
         string memory _category,
@@ -116,8 +74,7 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         require(bytes(_name).length > 0, "Lobby name cannot be empty");
         require(bytes(_category).length > 0, "Category cannot be empty");
         require(_entryFee > 0, "Entry fee must be greater than 0");
-        require(_maxPlayers > 1, "Max players must be at least 2");
-        require(_maxPlayers <= 10, "Max players cannot exceed 10");
+        require(_maxPlayers > 1 && _maxPlayers <= 10, "Invalid max players");
 
         uint256 lobbyId = nextLobbyId++;
         Lobby storage newLobby = lobbies[lobbyId];
@@ -129,318 +86,88 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         newLobby.maxPlayers = _maxPlayers;
         newLobby.createdAt = block.timestamp;
         newLobby.status = LobbyStatus.OPEN;
+        newLobby.distribution = DistributionStatus.NOT_DISTRIBUTED;
         newLobby.creator = msg.sender;
 
         emit LobbyCreated(lobbyId, _name, _category, _entryFee, _maxPlayers, msg.sender);
         return lobbyId;
     }
 
-    /**
-     * @dev Allows a user to join an existing open lobby by paying the entry fee.
-     * @param _lobbyId The ID of the lobby to join.
-     */
-    function joinLobby(uint256 _lobbyId) external payable nonReentrant validLobby(_lobbyId) isLobbyStatus(_lobbyId, LobbyStatus.OPEN) {
+    function joinLobby(uint256 _lobbyId) external payable nonReentrant validLobby(_lobbyId) {
         Lobby storage lobby = lobbies[_lobbyId];
-        require(msg.value == lobby.entryFee, "Incorrect entry fee sent");
-        require(lobby.players.length < lobby.maxPlayers, "Lobby is full");
-        require(!isPlayerInLobby(_lobbyId, msg.sender), "Player already in lobby");
+        require(lobby.status == LobbyStatus.OPEN || lobby.status == LobbyStatus.STARTED, "Lobby not open");
+        require(msg.value == lobby.entryFee, "Incorrect entry fee");
+        require(lobby.players.length < lobby.maxPlayers, "Lobby full");
+        require(block.timestamp <= lobby.createdAt + LOBBY_TIMEOUT, "Lobby expired");
 
+        // Add player
         lobby.players.push(msg.sender);
         lobby.playerCount++;
         lobby.prizePool += msg.value;
 
-        // Add to efficient membership tracking
-        Member memory member = Member({
-            memberAddress: msg.sender,
-            isActive: true,
-            joinedAt: block.timestamp
-        });
-        lobbyMembers[_lobbyId][msg.sender] = member;
-        lobbyMemberAddresses[_lobbyId].push(msg.sender);
-
         emit PlayerJoined(_lobbyId, msg.sender);
 
-        // Check if lobby is now full
+        // Update lobby status
+        if (lobby.players.length == 1) {
+            lobby.status = LobbyStatus.STARTED;
+        }
         if (lobby.players.length == lobby.maxPlayers) {
-            lobby.status = LobbyStatus.FULL;
-            lobby.createdAt = block.timestamp; // Reset timer for game start
+            lobby.status = LobbyStatus.IN_PROGRESS;
         }
     }
 
     /**
-     * @dev Called by the GameMaster to submit player scores for a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @param _players Array of player addresses.
-     * @param _scores Array of corresponding scores.
+     * @dev Only lobby creator can execute the payout once a winner is chosen.
      */
-    function submitScores(uint256 _lobbyId, address[] memory _players, uint256[] memory _scores) external onlyGameMaster validLobby(_lobbyId) {
+    function executeWinnerPayout(uint256 _lobbyId, address _winner)
+        external
+        nonReentrant
+        validLobby(_lobbyId)
+        onlyLobbyCreator(_lobbyId)
+    {
         Lobby storage lobby = lobbies[_lobbyId];
-        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for scores");
-        require(_players.length == _scores.length, "Players and scores arrays length mismatch");
-        require(_players.length == lobby.players.length, "Must submit scores for all players");
+        require(lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not in progress");
+        require(isPlayerInLobby(_lobbyId, _winner), "Winner not in this lobby");
+        require(lobby.distribution == DistributionStatus.NOT_DISTRIBUTED, "Already distributed");
+        require(block.timestamp >= lobby.createdAt + LOBBY_TIMEOUT, "Lobby not expired yet");
 
-        // Verify all players are in the lobby
-        for (uint256 i = 0; i < _players.length; i++) {
-            require(isPlayerInLobby(_lobbyId, _players[i]), "Player not in lobby");
-        }
-
-        // Store scores
-        for (uint256 i = 0; i < _players.length; i++) {
-            playerScores[_lobbyId][_players[i]] = _scores[i];
-        }
-
-        emit ScoresSubmitted(_lobbyId, _players, _scores);
-    }
-
-    /**
-     * @dev Allows a player to submit their own score for a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @param _score The player's score.
-     */
-    function submitMyScore(uint256 _lobbyId, uint256 _score) external validLobby(_lobbyId) {
-        Lobby storage lobby = lobbies[_lobbyId];
-        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for scores");
-        require(isPlayerInLobby(_lobbyId, msg.sender), "Player not in lobby");
-        require(playerScores[_lobbyId][msg.sender] == 0, "Score already submitted");
-
-        // Store the player's score
-        playerScores[_lobbyId][msg.sender] = _score;
-
-        emit ScoresSubmitted(_lobbyId, [msg.sender], [_score]);
-    }
-
-    /**
-     * @dev Called by the GameMaster to set the leaderboard for a lobby (ranked by score).
-     * @param _lobbyId The ID of the lobby.
-     * @param _leaderboard Array of player addresses ranked by score (highest to lowest).
-     */
-    function setLeaderboard(uint256 _lobbyId, address[] memory _leaderboard) external onlyGameMaster validLobby(_lobbyId) {
-        Lobby storage lobby = lobbies[_lobbyId];
-        require(lobby.status == LobbyStatus.FULL || lobby.status == LobbyStatus.IN_PROGRESS, "Lobby not ready for leaderboard");
-        require(_leaderboard.length == lobby.players.length, "Leaderboard must include all players");
-
-        // Verify all players are in the lobby
-        for (uint256 i = 0; i < _leaderboard.length; i++) {
-            require(isPlayerInLobby(_lobbyId, _leaderboard[i]), "Player not in lobby");
-        }
-
-        lobbyLeaderboard[_lobbyId] = _leaderboard;
-        leaderboardSet[_lobbyId] = true;
-
-        emit LeaderboardSet(_lobbyId, _leaderboard);
-    }
-
-    /**
-     * @dev Called by the GameMaster to resolve a completed game and distribute the prize.
-     * @param _lobbyId The ID of the lobby to resolve.
-     * @param _winner The address of the winning player.
-     */
-    function resolveGame(uint256 _lobbyId, address _winner) external nonReentrant onlyGameMaster validLobby(_lobbyId) {
-        Lobby storage lobby = lobbies[_lobbyId];
-        require(lobby.status == LobbyStatus.FULL, "Lobby not ready to resolve");
-        require(isPlayerInLobby(_lobbyId, _winner), "Winner is not a player in this lobby");
-        require(!lobby.prizeDistributed, "Prize already distributed");
-
+        // Mark complete
         lobby.status = LobbyStatus.COMPLETED;
         lobby.winner = _winner;
-        lobby.prizeDistributed = true;
+        lobby.distribution = DistributionStatus.DISTRIBUTED;
 
-        uint256 fee = (lobby.prizePool * platformFeeBps) / 10000;
-        uint256 prize = lobby.prizePool - fee;
+        uint256 prize = lobby.prizePool;
+        lobby.prizePool = 0; // avoid re-entrancy double spend
 
-        // Send prize to winner
-        (bool success, ) = _winner.call{value: prize}("");
-        require(success, "Transfer to winner failed");
-
-        // Send fee to platform owner
-        (success, ) = owner().call{value: fee}("");
-        require(success, "Transfer of fee failed");
+        (bool success, ) = payable(_winner).call{value: prize}("");
+        require(success, "Prize transfer failed");
 
         emit LobbyCompleted(_lobbyId, _winner, prize);
     }
 
-    /**
-     * @dev Allows a player in an expired lobby to mark their funds for refund.
-     * @param _lobbyId The ID of the expired lobby.
-     */
-    function claimRefund(uint256 _lobbyId) external validLobby(_lobbyId) {
-        Lobby storage lobby = lobbies[_lobbyId];
-        require(lobby.status == LobbyStatus.OPEN || lobby.status == LobbyStatus.FULL, "Not refundable");
-        require(block.timestamp > lobby.createdAt + LOBBY_TIMEOUT, "Lobby not yet expired");
-        require(isPlayerInLobby(_lobbyId, msg.sender), "Not a player in this lobby");
-        require(!lobby.prizeDistributed, "Prize already handled");
-
-        lobby.status = LobbyStatus.CANCELLED;
-        pendingReturns[msg.sender] += lobby.entryFee;
-
-        // Mark member as inactive
-        if (lobbyMembers[_lobbyId][msg.sender].isActive) {
-            lobbyMembers[_lobbyId][msg.sender].isActive = false;
-        }
-
-        emit LobbyCancelled(_lobbyId);
-    }
-
-    /**
-     * @dev Allows a user to withdraw any refunds they have claimed.
-     */
-    function withdrawRefund() external nonReentrant {
-        uint256 amount = pendingReturns[msg.sender];
-        require(amount > 0, "No funds to withdraw");
-
-        pendingReturns[msg.sender] = 0;
-        (bool success, ) = msg.sender.call{value: amount}("");
-        require(success, "Refund transfer failed");
-
-        emit RefundClaimed(msg.sender, amount);
-    }
-
-    // ===== VIEW & UTILITY FUNCTIONS =====
-    /**
-     * @dev Checks if an address is a player in a specific lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @param _player The address to check.
-     * @return True if the player is in the lobby, false otherwise.
-     */
-    function isPlayerInLobby(uint256 _lobbyId, address _player) public view validLobby(_lobbyId) returns (bool) {
-        // First check the efficient mapping
-        if (lobbyMembers[_lobbyId][_player].isActive) {
-            return true;
-        }
-        
-        // Fallback to original array check for backward compatibility
-        Lobby storage lobby = lobbies[_lobbyId];
-        for (uint256 i = 0; i < lobby.players.length; i++) {
-            if (lobby.players[i] == _player) {
+    // ===== VIEW HELPERS =====
+    function isPlayerInLobby(uint256 _lobbyId, address _player) public view returns (bool) {
+        address[] storage players = lobbies[_lobbyId].players;
+        for (uint256 i = 0; i < players.length; i++) {
+            if (players[i] == _player) {
                 return true;
             }
         }
         return false;
     }
 
-    /**
-     * @dev Gets the list of players in a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @return An array of player addresses.
-     */
     function getPlayersInLobby(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
         return lobbies[_lobbyId].players;
     }
 
-    /**
-     * @dev Gets the list of active members in a lobby using efficient mapping.
-     * @param _lobbyId The ID of the lobby.
-     * @return An array of active member addresses.
-     */
-    function getActiveMembers(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
-        address[] memory allMembers = lobbyMemberAddresses[_lobbyId];
-        address[] memory activeMembers = new address[](allMembers.length);
-        uint256 activeCount = 0;
-        
-        for (uint256 i = 0; i < allMembers.length; i++) {
-            if (lobbyMembers[_lobbyId][allMembers[i]].isActive) {
-                activeMembers[activeCount] = allMembers[i];
-                activeCount++;
-            }
-        }
-        
-        // Resize array to actual active count
-        address[] memory result = new address[](activeCount);
-        for (uint256 i = 0; i < activeCount; i++) {
-            result[i] = activeMembers[i];
-        }
-        
-        return result;
-    }
-
-    /**
-     * @dev Gets member information for a specific player in a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @param _player The address of the player.
-     * @return Member struct with player details.
-     */
-    function getMemberInfo(uint256 _lobbyId, address _player) external view validLobby(_lobbyId) returns (Member memory) {
-        return lobbyMembers[_lobbyId][_player];
-    }
-
-    /**
-     * @dev Gets the score of a specific player in a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @param _player The address of the player.
-     * @return The player's score.
-     */
-    function getPlayerScore(uint256 _lobbyId, address _player) external view validLobby(_lobbyId) returns (uint256) {
-        return playerScores[_lobbyId][_player];
-    }
-
-    /**
-     * @dev Gets the leaderboard for a lobby (ranked players).
-     * @param _lobbyId The ID of the lobby.
-     * @return An array of player addresses ranked by score (highest to lowest).
-     */
-    function getLeaderboard(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
-        return lobbyLeaderboard[_lobbyId];
-    }
-
-    /**
-     * @dev Gets all player scores for a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @return players Array of player addresses.
-     * @return scores Array of corresponding scores.
-     */
-    function getAllScores(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory players, uint256[] memory scores) {
-        Lobby storage lobby = lobbies[_lobbyId];
-        players = new address[](lobby.players.length);
-        scores = new uint256[](lobby.players.length);
-        
-        for (uint256 i = 0; i < lobby.players.length; i++) {
-            players[i] = lobby.players[i];
-            scores[i] = playerScores[_lobbyId][lobby.players[i]];
-        }
-    }
-
-    /**
-     * @dev Checks if a leaderboard has been set for a lobby.
-     * @param _lobbyId The ID of the lobby.
-     * @return True if leaderboard is set, false otherwise.
-     */
-    function isLeaderboardSet(uint256 _lobbyId) external view validLobby(_lobbyId) returns (bool) {
-        return leaderboardSet[_lobbyId];
-    }
-
-    // ===== ADMIN FUNCTIONS =====
-    /**
-     * @dev Allows the owner to update the platform fee.
-     * @param _newFeeBps The new fee in basis points.
-     */
-    function updatePlatformFee(uint256 _newFeeBps) external onlyOwner {
-        require(_newFeeBps <= 1000, "Fee cannot exceed 10%"); // Max 10% fee
-        platformFeeBps = _newFeeBps;
-        emit FeeUpdated(_newFeeBps);
-    }
-
-    /**
-     * @dev Allows the owner to update the GameMaster address.
-     * @param _newGameMaster The address of the new GameMaster.
-     */
-    function updateGameMaster(address _newGameMaster) external onlyOwner {
-        require(_newGameMaster != address(0), "Invalid GameMaster address");
-        gameMaster = _newGameMaster;
-        emit GameMasterUpdated(_newGameMaster);
-    }
-
-    /**
-     * @dev Allows the owner to withdraw any accidental non-CFX tokens sent to the contract.
-     * @param _token The address of the token to withdraw.
-     * @param _to The address to send the tokens to.
-     */
+    // ===== ADMIN =====
     function withdrawERC20(IERC20 _token, address _to) external onlyOwner {
         uint256 balance = _token.balanceOf(address(this));
         require(balance > 0, "No tokens to withdraw");
         _token.transfer(_to, balance);
     }
 
-    // Fallback function to reject accidental ETH sends (should not happen on Conflux)
+    // Reject direct ETH sends
     receive() external payable {
         revert("Do not send ETH directly");
     }
