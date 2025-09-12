@@ -21,9 +21,11 @@ import {
   Shield, 
   ArrowLeft,
   Loader2,
-  CheckCircle
+  CheckCircle,
+  RefreshCw
 } from "lucide-react"
 import QuizGame from "@/components/QuizGame"
+import RealTimeScores from "@/components/RealTimeScores"
 
 export default function LobbyPage() {
   const params = useParams()
@@ -54,6 +56,21 @@ export default function LobbyPage() {
   const lobbyId = params.lobbyId as string
   const numericLobbyId = Number(lobbyId)
 
+  const [joinedHint, setJoinedHint] = useState<boolean>(false)
+
+  useEffect(() => {
+    try {
+      if (account) {
+        const flag = sessionStorage.getItem(`quizcraft:joined:${lobbyId}:${account.toLowerCase()}`)
+        setJoinedHint(flag === 'true')
+      } else {
+        setJoinedHint(false)
+      }
+    } catch {
+      setJoinedHint(false)
+    }
+  }, [account, lobbyId])
+
   useEffect(() => {
     const fetchLobbyDetails = async () => {
       console.log("Lobby page loaded for lobbyId:", lobbyId)
@@ -61,9 +78,11 @@ export default function LobbyPage() {
 
       try {
         // Use wallet provider if on the correct network; otherwise fall back to public RPC for read-only data
-        const provider = (typeof window !== 'undefined' && (window as any).ethereum && isOnConflux)
-          ? new ethers.BrowserProvider((window as any).ethereum)
-          : new ethers.JsonRpcProvider(CONFLUX_TESTNET.rpcUrl)
+        const hasWindowProvider = typeof window !== 'undefined' && (window as any).ethereum
+        const browserProvider = hasWindowProvider ? new ethers.BrowserProvider((window as any).ethereum) : null
+        const rpcProvider = new ethers.JsonRpcProvider(CONFLUX_TESTNET.rpcUrl)
+        // Prefer wallet provider if on the right network; still keep rpc for fallbacks
+        const provider = (hasWindowProvider && isOnConflux) ? (browserProvider as any) : (rpcProvider as any)
 
         const contract = new ethers.Contract(
           CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
@@ -84,7 +103,14 @@ export default function LobbyPage() {
         if (status === 0) { // OPEN
           statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
         } else if (status === 1) { // FULL
-          statusText = "Full - Game starting"
+          // Check if game is actually finished locally
+          if (gameFinished) {
+            statusText = "Game Completed"
+          } else if (gameStarted) {
+            statusText = "Game in progress"
+          } else {
+            statusText = "Full - Game starting"
+          }
         } else if (status === 2) { // IN_PROGRESS
           statusText = "Game in progress"
         } else if (status === 3) { // COMPLETED
@@ -96,11 +122,54 @@ export default function LobbyPage() {
         // Get players in lobby
         const playersList = await contract.getPlayersInLobby(numericLobbyId)
         
-        // Check if current user is in lobby
+        // Check if current user is in lobby using efficient mapping with robust fallbacks
         let userInLobby = false
         if (account) {
-          userInLobby = await contract.isPlayerInLobby(numericLobbyId, account)
-          console.log("User in lobby check:", { lobbyId: numericLobbyId, account, userInLobby })
+          // Primary: use whichever provider selected above
+          try {
+            userInLobby = await contract.isPlayerInLobby(numericLobbyId, account)
+            console.log("Contract membership check (primary):", userInLobby)
+          } catch (err) {
+            console.error("Contract membership check (primary) failed:", err)
+          }
+
+          // Secondary: try the other provider flavor as redundancy
+          if (!userInLobby) {
+            try {
+              const altProvider = (provider === rpcProvider && browserProvider) ? browserProvider : rpcProvider
+              const altContract = new ethers.Contract(
+                CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+                QUIZ_CRAFT_ARENA_ABI,
+                altProvider as any
+              )
+              userInLobby = await altContract.isPlayerInLobby(numericLobbyId, account)
+              console.log("Contract membership check (secondary):", userInLobby)
+            } catch (err) {
+              console.error("Contract membership check (secondary) failed:", err)
+            }
+          }
+
+          // Fallback: derive from players list (case-insensitive)
+          if (!userInLobby) {
+            const acct = account.toLowerCase()
+            userInLobby = playersList.some((p: string) => p.toLowerCase() === acct)
+            console.log("Players list fallback check:", userInLobby)
+          }
+
+          // If detected from on-chain or players list, persist a session hint for smoother UX
+          try {
+            if (userInLobby) {
+              sessionStorage.setItem(`quizcraft:joined:${lobbyId}:${account.toLowerCase()}`, 'true')
+            }
+          } catch {}
+
+          // Final fallback: recently joined hint from session
+          if (!userInLobby && joinedHint) {
+            userInLobby = true
+            console.log("Session hint fallback:", userInLobby)
+          }
+
+          console.log("Final membership result:", { lobbyId: numericLobbyId, account, userInLobby })
         }
 
         const lobbyInfo: Lobby = {
@@ -157,7 +226,34 @@ export default function LobbyPage() {
     }
 
     fetchLobbyDetails()
-  }, [lobbyId, isConnected, isOnConflux, account])
+  }, [lobbyId, isConnected, isOnConflux, account, joinedHint])
+
+  // Listen to PlayerJoined events scoped to this lobby to refresh membership promptly
+  useEffect(() => {
+    let contract: ethers.Contract | null = null
+    const setup = async () => {
+      try {
+        if (typeof window === 'undefined' || !(window as any).ethereum) return
+        const provider = new ethers.BrowserProvider((window as any).ethereum)
+        contract = new ethers.Contract(
+          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+          QUIZ_CRAFT_ARENA_ABI,
+          provider
+        )
+        const handler = (eventLobbyId: bigint) => {
+          if (Number(eventLobbyId) === numericLobbyId) {
+            // Soft refresh membership related state
+            window.location.reload()
+          }
+        }
+        contract.on('PlayerJoined', handler)
+      } catch {}
+    }
+    setup()
+    return () => {
+      try { contract?.removeAllListeners?.('PlayerJoined') } catch {}
+    }
+  }, [numericLobbyId])
 
   // Tick countdown every second
   useEffect(() => {
@@ -285,9 +381,12 @@ export default function LobbyPage() {
         // Check if leaderboard is set and read it if present
         const leaderboardSet = await contract.isLeaderboardSet(numericLobbyId)
         setIsLeaderboardSet(leaderboardSet)
+        console.log('Leaderboard set on-chain:', leaderboardSet)
+        
         if (leaderboardSet) {
           const leaderboard = await contract.getLeaderboard(numericLobbyId)
           setContractLeaderboard(leaderboard)
+          console.log('On-chain leaderboard:', leaderboard)
         }
 
         // Always read all scores to display full participant list
@@ -297,13 +396,65 @@ export default function LobbyPage() {
           score: Number(scores[index])
         }))
         setContractScores(scoresData)
+        console.log('On-chain scores:', scoresData)
+        
+        // Also check local storage for any pending scores
+        try {
+          const localScores = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`)
+          if (localScores) {
+            const localData = JSON.parse(localScores)
+            console.log('Local scores found:', localData)
+            
+            // If local scores exist and on-chain scores are empty, use local scores
+            if (scoresData.length === 0 && localData.scores && localData.scores.length > 0) {
+              const localScoresData = localData.players.map((player: string, index: number) => ({
+                address: player,
+                score: Number(localData.scores[index])
+              }))
+              setContractScores(localScoresData)
+              console.log('Using local scores as fallback:', localScoresData)
+            }
+          }
+        } catch (e) {
+          console.error('Error reading local scores:', e)
+        }
+        
       } catch (e) {
         console.error('Error fetching contract data:', e)
       }
     }
     
     fetchContractData()
-  }, [lobbyId, isOnConflux, gameFinished])
+  }, [lobbyId, isOnConflux, gameFinished, gameStarted])
+
+  const refreshScoresAndLeaderboard = async () => {
+    try {
+      if (!isOnConflux) return
+      const provider = new ethers.BrowserProvider((window as any).ethereum)
+      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, provider)
+      
+      // Check if leaderboard is set and read it if present
+      const leaderboardSet = await contract.isLeaderboardSet(numericLobbyId)
+      setIsLeaderboardSet(leaderboardSet)
+      
+      if (leaderboardSet) {
+        const leaderboard = await contract.getLeaderboard(numericLobbyId)
+        setContractLeaderboard(leaderboard)
+      }
+
+      // Read all scores
+      const [players, scores] = await contract.getAllScores(numericLobbyId)
+      const scoresData = players.map((player: string, index: number) => ({
+        address: player,
+        score: Number(scores[index])
+      }))
+      setContractScores(scoresData)
+      
+      console.log('Scores and leaderboard refreshed:', { leaderboardSet, leaderboard: leaderboardSet ? await contract.getLeaderboard(numericLobbyId) : null, scores: scoresData })
+    } catch (e) {
+      console.error('Error refreshing scores and leaderboard:', e)
+    }
+  }
 
   const getLobbyIcon = (mode: string) => {
     if (mode.includes("Duel")) return <Swords className="h-6 w-6" />
@@ -339,12 +490,82 @@ export default function LobbyPage() {
   if (loading) {
     return (
       <div className="container mx-auto px-4 py-8">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center justify-center h-64">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <span className="ml-2">Loading lobby...</span>
+        <div className="max-w-4xl mx-auto space-y-6">
+          {/* Top shimmer banner */}
+          <div className="relative overflow-hidden rounded-xl border border-muted/30 bg-gradient-to-r from-muted/40 via-muted/60 to-muted/40">
+            <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_1.6s_infinite]" />
+            <div className="p-6 flex items-center justify-between">
+              <div className="space-y-2">
+                <div className="h-6 w-40 bg-white/20 rounded" />
+                <div className="h-4 w-64 bg-white/10 rounded" />
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-white/20" />
+                <div className="h-10 w-28 rounded-lg bg-white/20" />
+              </div>
+            </div>
+          </div>
+
+          {/* Info cards skeleton */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[0,1,2].map((i) => (
+              <div key={i} className="relative overflow-hidden rounded-xl border border-muted/30 bg-card p-5">
+                <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.6s_infinite]" />
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-lg bg-muted" />
+                  <div className="space-y-2 w-full">
+                    <div className="h-3 w-24 bg-muted rounded" />
+                    <div className="h-4 w-32 bg-muted rounded" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Details and list skeletons */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="relative overflow-hidden rounded-xl border border-muted/30 bg-card p-6">
+              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.6s_infinite]" />
+              <div className="h-5 w-40 bg-muted rounded mb-4" />
+              <div className="space-y-3">
+                {[0,1,2,3].map((i) => (
+                  <div key={i} className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-full bg-muted" />
+                    <div className="space-y-2 w-full">
+                      <div className="h-3 w-28 bg-muted rounded" />
+                      <div className="h-3 w-40 bg-muted/80 rounded" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="relative overflow-hidden rounded-xl border border-muted/30 bg-card p-6">
+              <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.6s_infinite]" />
+              <div className="h-5 w-48 bg-muted rounded mb-4" />
+              <div className="space-y-3">
+                {[0,1,2].map((i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-lg border bg-muted/20">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-muted" />
+                      <div className="h-4 w-32 bg-muted rounded" />
+                    </div>
+                    <div className="h-4 w-16 bg-muted rounded" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Footer action skeleton */}
+          <div className="relative overflow-hidden rounded-xl border border-muted/30 bg-card p-8 text-center">
+            <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.6s_infinite]" />
+            <div className="mx-auto h-10 w-40 bg-muted rounded" />
           </div>
         </div>
+        <style jsx global>{`
+          @keyframes shimmer { 100% { transform: translateX(100%); } }
+        `}</style>
       </div>
     )
   }
@@ -377,7 +598,7 @@ export default function LobbyPage() {
     )
   }
 
-  if (!isUserInLobby) {
+  if (!loading && !isUserInLobby && account && !joinedHint) {
     return (
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-4xl mx-auto text-center">
@@ -540,8 +761,7 @@ export default function LobbyPage() {
                   </div>
                 </div>
               )}
-              {/* Prize distribution status */
-              }
+              {/* Prize distribution status */}
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
                   <CheckCircle className="h-4 w-4 text-emerald-600" />
@@ -555,58 +775,14 @@ export default function LobbyPage() {
           </CardContent>
         </Card>
 
-        {/* Smart Contract Scores - full list with Top 3 highlighted */}
-        {contractScores.length > 0 && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Trophy className="h-5 w-5 text-purple-500" />
-                Scores (On-Chain)
-              </CardTitle>
-              <p className="text-sm text-muted-foreground">
-                {isLeaderboardSet ? 'Leaderboard set by game master. Top 3 highlighted.' : 'Live on-chain scores. Top 3 highlighted.'}
-              </p>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {contractScores
-                  .slice()
-                  .sort((a, b) => b.score - a.score)
-                  .map((player, index) => (
-                    <div key={player.address} className={`flex items-center justify-between p-3 rounded-lg border ${
-                      index === 0 ? 'bg-yellow-50 border-yellow-200' :
-                      index === 1 ? 'bg-gray-50 border-gray-200' :
-                      index === 2 ? 'bg-amber-50 border-amber-200' :
-                      'bg-muted/20'
-                    }`}>
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                          index === 0 ? 'bg-yellow-500 text-white' : 
-                          index === 1 ? 'bg-gray-400 text-white' : 
-                          index === 2 ? 'bg-amber-600 text-white' : 
-                          'bg-gray-200 text-gray-700'
-                        }`}>
-                          {index + 1}
-                        </div>
-                        <div>
-                          <p className="font-medium">{player.address.slice(0, 6)}...{player.address.slice(-4)}</p>
-                          <p className="text-sm text-muted-foreground">
-                            {index === 0 ? '🥇 Top 1' : 
-                             index === 1 ? '🥈 Top 2' : 
-                             index === 2 ? '🥉 Top 3' : 
-                             'Participant'}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-bold text-lg">{player.score}</p>
-                        <p className="text-sm text-muted-foreground">points</p>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Real-time Scores from Supabase - Show before game starts and after game ends */}
+        {(!gameStarted || gameFinished) && (
+          <RealTimeScores 
+            lobbyId={lobbyId} 
+            refreshInterval={3000}
+            gameState={gameFinished ? 'finished' : 'waiting'}
+            currentPlayerAddress={account}
+          />
         )}
 
         {/* Quiz Game */}
@@ -616,8 +792,9 @@ export default function LobbyPage() {
             players={players}
             category={lobby.category}
             startTimestampSec={(createdAtSec || 0) + 10}
-            questionDurationSec={30}
+            questionDurationSec={10}
             seed={`${CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA}-${numericLobbyId}-${createdAtSec || 0}`}
+            currentPlayerAddress={account || players.find(p => p) || ''}
             onGameEnd={(results) => {
               setGameResults(results)
               setGameFinished(true)
@@ -656,19 +833,6 @@ export default function LobbyPage() {
                   ) : (
                     <>Expires in {Math.floor((expiresInSec || 0) / 60)}m {(expiresInSec || 0) % 60}s</>
                   )}
-                  {isExpired && (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {createdAtSec !== null && (
-                        <div>Created: {new Date(createdAtSec * 1000).toLocaleString()}</div>
-                      )}
-                      {expiresAtSec !== null && (
-                        <div>Expired: {new Date(expiresAtSec * 1000).toLocaleString()}</div>
-                      )}
-                      {lobbyTimeoutSec !== null && (
-                        <div>Timeout Window: {Math.floor(lobbyTimeoutSec / 60)} minutes</div>
-                      )}
-                    </div>
-                  )}
                 </div>
               )}
               {players.length >= lobby.maxPlayers ? (
@@ -681,7 +845,7 @@ export default function LobbyPage() {
                   Waiting for {lobby.maxPlayers - players.length} more players to join...
                 </p>
               )}
-              {players.length >= lobby.maxPlayers && !gameStarted && (
+              {players.length >= lobby.maxPlayers && !gameStarted && !gameFinished && (
                 <div className="mt-4">
                   <Button
                     onClick={startGame}
@@ -715,76 +879,6 @@ export default function LobbyPage() {
           </Card>
         )}
 
-        {/* Game Results Scoreboard */}
-        {(gameFinished || (gameStarted && gameResults.length > 0)) && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Trophy className="h-5 w-5" />
-                {gameFinished ? 'Final Results' : 'Live Scores (Preview)'}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {gameResults
-                  .sort((a, b) => b.score - a.score)
-                  .map((result, index) => (
-                    <div
-                      key={result.player}
-                      className={`flex items-center justify-between p-4 rounded-lg border ${
-                        result.player === winner
-                          ? "bg-yellow-50 border-yellow-200"
-                          : "bg-muted/20"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${
-                          index === 0 ? "bg-yellow-500" : index === 1 ? "bg-gray-400" : index === 2 ? "bg-orange-600" : "bg-blue-500"
-                        }`}>
-                          {index + 1}
-                        </div>
-                        <div>
-                          <p className="font-medium">
-                            {result.player.toLowerCase() === account?.toLowerCase() ? "You" : `${result.player.slice(0, 6)}...${result.player.slice(-4)}`}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            {result.correctAnswers}/{result.totalQuestions} correct
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <Badge variant={index === 0 ? "default" : "outline"} className="text-lg">
-                          {result.score} pts
-                        </Badge>
-                        {result.player === winner && (
-                          <div className="text-xs text-yellow-600 font-semibold mt-1">
-                            🏆 Winner
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-              </div>
-              {winner && winner.toLowerCase() === account?.toLowerCase() && (
-                <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-semibold text-yellow-800">Congratulations! You won!</h4>
-                      <p className="text-sm text-yellow-700">Prize will be distributed automatically by the game master.</p>
-                    </div>
-                    <Button
-                      onClick={claimPrize}
-                      disabled={claimingPrize}
-                      className="bg-yellow-600 hover:bg-yellow-700 text-white"
-                    >
-                      {claimingPrize ? "Processing..." : "Claim Prize"}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Players List */}
         <Card className="mb-8">
@@ -828,32 +922,6 @@ export default function LobbyPage() {
           </CardContent>
         </Card>
 
-        {/* Status Message */}
-        <Card>
-          <CardContent className="py-8 text-center">
-            {lobby.currentPlayers < lobby.maxPlayers ? (
-              <div>
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Clock className="h-8 w-8 text-blue-500" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">Waiting for Players</h3>
-                <p className="text-muted-foreground">
-                  {lobby.maxPlayers - lobby.currentPlayers} more player(s) needed to start the game.
-                </p>
-              </div>
-            ) : (
-              <div>
-                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle className="h-8 w-8 text-green-500" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">Lobby Full</h3>
-                <p className="text-muted-foreground">
-                  All players have joined! The game will start soon.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   )
