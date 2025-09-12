@@ -2,13 +2,23 @@ import { type NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("Quiz generation request received");
+    
     const {
       category = "Technology",
       difficulty = "medium",
-      questionCount = 1,
+      questionCount = 10,
       timePerQuestion = 10,
       seed,
     } = await request.json()
+
+    console.log("Quiz generation params:", {
+      category,
+      difficulty,
+      questionCount,
+      timePerQuestion,
+      seed
+    });
 
     // Compose a prompt for OpenAI
     const prompt = `Generate exactly 10 ${difficulty} multiple-choice quiz questions about ${category}.
@@ -22,13 +32,16 @@ Return a JSON array of 10 objects, each with this schema:
   "explanation": string
 }`
 
-    // OpenAI API key
+    // OpenAI API key from environment variables
     const apiKey = process.env.OPENAI_API_KEY || "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"
 
     const callOpenAI = async (model: string) => {
       if (!apiKey) {
+        console.log("No OpenAI API key found, will use fallback questions");
         return { ok: false, status: 0, content: "" as string }
       }
+      
+      console.log(`Calling OpenAI API with model: ${model}`);
       const resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -51,6 +64,7 @@ Return a JSON array of 10 objects, each with this schema:
       }
       const data = await resp.json()
       const content: string = data.choices?.[0]?.message?.content ?? ""
+      console.log(`OpenAI API success with model: ${model}, content length: ${content.length}`);
       return { ok: true, status: 200, content }
     }
 
@@ -61,6 +75,7 @@ Return a JSON array of 10 objects, each with this schema:
     if (!p.ok || !p.content) p = await callOpenAI("gpt-3.5-turbo-16k")
 
     let content = p.content || ""
+    console.log("OpenAI response content length:", content.length);
 
     // Normalize AI output into questions array that the client expects
     const toQuestions = (raw: any): Array<{ id: string; question: string; options: string[]; correctAnswer: number; timeLimit: number; explanation: string }> => {
@@ -96,8 +111,11 @@ Return a JSON array of 10 objects, each with this schema:
       // Some models may wrap JSON in code fences; try to extract JSON substring first
       const jsonMatch = content?.match(/```(?:json)?\n([\s\S]*?)```/i)
       const toParse = jsonMatch ? jsonMatch[1] : content
+      console.log("Attempting to parse JSON:", toParse.substring(0, 200) + "...");
       parsed = JSON.parse(toParse)
+      console.log("Successfully parsed JSON, type:", Array.isArray(parsed) ? 'array' : typeof parsed);
     } catch (e) {
+      console.log("JSON parsing failed, using fallback:", e);
       // If the model didn't return strict JSON, fall back to a single placeholder question
       parsed = {
         question: "Failed to generate question.",
@@ -108,6 +126,7 @@ Return a JSON array of 10 objects, each with this schema:
     }
 
     let questions = toQuestions(parsed)
+    console.log("Generated questions count:", questions.length);
 
     // Shuffle options and re-index correctAnswer to avoid positional bias
     // Seeded RNG if seed provided (xorshift32)
@@ -169,6 +188,7 @@ Return a JSON array of 10 objects, each with this schema:
       questions.length < Number(questionCount)
 
     if (needsLocalFallback) {
+      console.log("Using local fallback questions");
       const localGenerate = (topic: string, count: number) => {
         const bank: Array<{ question: string; options: string[]; correctAnswer: number; explanation: string }> = [
           { question: `${topic}: What does CPU stand for?`, options: ["Central Processing Unit", "Computer Personal Unit", "Central Peripheral Unit", "Compute Process Utility"], correctAnswer: 0, explanation: 'CPU stands for "Central Processing Unit".' },
@@ -208,6 +228,7 @@ Return a JSON array of 10 objects, each with this schema:
       }
       questions = localGenerate(category, Number(questionCount) || 10)
       questions = postProcess(questions)
+      console.log("Local fallback questions generated:", questions.length);
     }
 
     const responsePayload: any = {
@@ -231,6 +252,12 @@ Return a JSON array of 10 objects, each with this schema:
         questionCount: questions.length,
       }
     }
+
+    console.log("Final response payload:", {
+      success: responsePayload.success,
+      questionCount: responsePayload.quiz.questions.length,
+      debug: responsePayload.debug
+    });
 
     // If AI failed, we still return success true with local questions
     return NextResponse.json(responsePayload)
