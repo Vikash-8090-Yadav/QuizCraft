@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -13,12 +13,21 @@ import { ethers } from "ethers"
 import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
 import { IS_DEVELOPMENT, CONFLUX_TESTNET } from "@/lib/constants"
 import type { Lobby } from "@/types"
-import { Trophy, Users, Coins, Loader2, Swords, Crown, Zap, Shield, Plus, X, CheckCircle } from "lucide-react"
+import { Trophy, Users, Coins, Loader2, Swords, Crown, Zap, Shield, Plus, X, CheckCircle, AlertCircle, Info, RefreshCw, Clock } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 const OWNER_ADDRESS = "0xc3E894473BB51b5e5453042420A1d465E69cbCB9"
 
+declare global {
+  interface Window {
+    ethereum?: any
+  }
+}
+
 export default function ArenaPage() {
   const { signer, isConnected, isOnConflux, chainId, switchToConflux, account } = useWeb3()
+  const { toast } = useToast()
   const [lobbies, setLobbies] = useState<Lobby[]>([])
   const [loading, setLoading] = useState(true)
   const [joiningLobby, setJoiningLobby] = useState<string | null>(null)
@@ -39,132 +48,309 @@ export default function ArenaPage() {
   const [isOwner, setIsOwner] = useState(false)
   const [updatingFee, setUpdatingFee] = useState(false)
   const [updatingGameMaster, setUpdatingGameMaster] = useState(false)
+  const [updatingScores, setUpdatingScores] = useState<string | null>(null)
   const [newFee, setNewFee] = useState("")
   const [newGameMaster, setNewGameMaster] = useState("")
 
-  useEffect(() => {
-    const fetchLobbies = async () => {
-      try {
-        // Always use real contract now
-        if (false) {
-          const mockLobbies: Lobby[] = [
-            { id: "1", name: "Lightning Duel", category: "Technology", mode: "⚡ Lightning Duel", entryFee: "2", currentPlayers: 1, maxPlayers: 2, isActive: true },
-            { id: "2", name: "Battle Royale", category: "Crypto", mode: "🏆 Battle Royale", entryFee: "5", currentPlayers: 3, maxPlayers: 5, isActive: true },
-            { id: "3", name: "Quick Match", category: "Science", mode: "🚀 Quick Match", entryFee: "1", currentPlayers: 2, maxPlayers: 2, isActive: false },
-          ]
-          await new Promise((resolve) => setTimeout(resolve, 500))
-          setLobbies(mockLobbies)
-          return
-        }
-
-        // Real on-chain fetch
-        const onchainProvider = new ethers.BrowserProvider(window.ethereum)
-        const readContract = new ethers.Contract(
-          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
-          QUIZ_CRAFT_ARENA_ABI,
-          onchainProvider
-        )
-
-        setDebugInfo("Fetching from contract...")
-        const nextLobbyId: bigint = await readContract.nextLobbyId()
-        const lobbyCount = Number(nextLobbyId)
-        setDebugInfo(`Found ${lobbyCount} lobbies`)
-        
-        const fetched: Lobby[] = []
-        for (let i = 0; i < lobbyCount; i++) {
-          try {
-            const lobby = await readContract.lobbies(i)
-            // lobby: { id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, winner, prizeDistributed, creator }
-            const entryFeeCFX = ethers.formatEther(lobby.entryFee)
-            const status = Number(lobby.status)
-            const playerCount = Number(lobby.playerCount)
-            const maxPlayers = Number(lobby.maxPlayers)
-            
-            // Determine lobby status
-            let isActive = false
-            let statusText = ""
-            if (status === 0) { // OPEN
-              isActive = playerCount < maxPlayers
-              statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
-            } else if (status === 1) { // FULL
-              isActive = false
-              statusText = "Full - Game starting"
-            } else if (status === 2) { // IN_PROGRESS
-              isActive = false
-              statusText = "Game in progress"
-            } else if (status === 3) { // COMPLETED
-              isActive = false
-              statusText = "Completed"
-            } else if (status === 4) { // CANCELLED
-              isActive = false
-              statusText = "Cancelled"
-            }
-
-            // Check if current user is in this lobby
-            let isUserInLobby = false
-            if (account) {
-              try {
-                isUserInLobby = await readContract.isPlayerInLobby(i, account)
-                console.log(`User ${account} in lobby ${i}:`, isUserInLobby)
-              } catch (err) {
-                console.error(`Error checking if user in lobby ${i}:`, err)
-              }
-            }
-
-            fetched.push({
-              id: String(lobby.id),
-              name: lobby.name,
-              category: lobby.category,
-              mode: `🎯 ${lobby.name}`,
-              entryFee: entryFeeCFX,
-              currentPlayers: playerCount,
-              maxPlayers: maxPlayers,
-              isActive: isActive,
-              creator: lobby.creator,
-              status: statusText,
-              isUserInLobby: isUserInLobby,
-            })
-          } catch (err) {
-            console.error(`Error fetching lobby ${i}:`, err)
-          }
-        }
-        setLobbies(fetched)
-        setDebugInfo(`Loaded ${fetched.length} lobbies`)
-
-        // Check if current account is owner and fetch admin data
-        if (account) {
-          try {
-            const owner = await readContract.owner()
-            const isOwnerAccount = owner.toLowerCase() === account.toLowerCase()
-            setIsOwner(isOwnerAccount)
-
-            if (isOwnerAccount) {
-              const fee = await readContract.platformFeeBps()
-              const gm = await readContract.gameMaster()
-              setPlatformFee(Number(fee))
-              setGameMaster(gm)
-            }
-          } catch (err) {
-            console.error("Error fetching admin data:", err)
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching lobbies:", error)
-        setDebugInfo(`Error: ${error}`)
-        setLobbies([])
-      } finally {
-        setLoading(false)
-      }
+  // Function to update scores to blockchain (only for game master)
+  const updateLobbyScores = async (lobbyId: string) => {
+    if (!signer || !isConnected) {
+      toast({ title: "Connect wallet", description: "Please connect your wallet to update scores.", variant: "destructive" })
+      return
     }
 
-    fetchLobbies()
-  }, [account, isConnected, isOnConflux])
+    setUpdatingScores(lobbyId)
+    try {
+      // First, collect all player scores
+      const collectedData = collectAllPlayerScores(lobbyId)
+      if (!collectedData) {
+        toast({ title: "No scores found", description: "No pending scores found for this lobby.", variant: "destructive" })
+        return
+      }
 
-  // Listen to contract events for live updates
+      const { players, scores, allPlayerScores, detailedResults } = collectedData
+      
+      console.log("Updating scores for lobby:", lobbyId)
+      console.log("Players:", players)
+      console.log("Scores:", scores)
+      console.log("All player scores:", allPlayerScores)
+      console.log("Detailed results:", detailedResults)
+      
+      // Submit scores to smart contract
+      const contract = new ethers.Contract(
+        CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+        QUIZ_CRAFT_ARENA_ABI,
+        signer
+      )
+
+      // 1) Submit raw scores (onlyGameMaster)
+      const tx = await contract.submitScores(lobbyId, players, scores)
+      console.log("Scores update transaction sent:", tx.hash)
+      
+      await tx.wait()
+      console.log("Scores updated successfully")
+
+      // 2) Also set leaderboard based on the submitted scores (desc)
+      const leaderboard = players
+        .map((addr: string, i: number) => ({ addr, score: Number(scores[i] || 0) }))
+        .sort((a: { addr: string; score: number }, b: { addr: string; score: number }) => b.score - a.score)
+        .map((x: { addr: string; score: number }) => x.addr)
+
+      const tx2 = await contract.setLeaderboard(lobbyId, leaderboard)
+      console.log("Set leaderboard transaction sent:", tx2.hash)
+      await tx2.wait()
+      console.log("Leaderboard set successfully")
+
+      // Update local status after full confirmation
+      const updatedScoresData = { ...collectedData, status: 'confirmed', leaderboard }
+      localStorage.setItem(`quizcraft:lobby-scores:${lobbyId}`, JSON.stringify(updatedScoresData))
+
+      const playerCount = players.length
+      const totalScore = scores.reduce((sum: number, score: number) => sum + score, 0)
+      toast({ 
+        title: "All Scores Updated", 
+        description: `${playerCount} players' scores (${totalScore} total points) and leaderboard updated on-chain.`, 
+        duration: 4000 
+      })
+      
+      // Refresh lobbies to show updated status
+      fetchLobbies()
+      
+    } catch (error: any) {
+      console.error("Error updating scores:", error)
+      toast({ title: "Update Failed", description: error.message || "Failed to update scores.", variant: "destructive" })
+    } finally {
+      setUpdatingScores(null)
+    }
+  }
+
+  // Check if lobby has pending scores
+  const hasPendingScores = (lobbyId: string) => {
+    try {
+      const scoresData = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`)
+      if (!scoresData) return false
+      const { status } = JSON.parse(scoresData)
+      return status === 'pending'
+    } catch {
+      return false
+    }
+  }
+
+  // Collect and merge scores from all players
+  const collectAllPlayerScores = (lobbyId: string) => {
+    try {
+      // Get the main lobby scores
+      const lobbyScoresData = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`)
+      if (!lobbyScoresData) return null
+      
+      const lobbyData = JSON.parse(lobbyScoresData)
+      const allPlayerScores = { ...(lobbyData.allPlayerScores || {}) }
+      
+      // Collect individual player contributions
+      const players = lobbyData.players || []
+      players.forEach((player: string) => {
+        const playerContributionKey = `quizcraft:player-contribution:${lobbyId}:${player}`
+        const playerContribution = localStorage.getItem(playerContributionKey)
+        if (playerContribution) {
+          const contribution = JSON.parse(playerContribution)
+          allPlayerScores[player] = contribution.score
+          console.log(`Collected score for ${player}: ${contribution.score}`)
+        }
+      })
+      
+      // Update the lobby data with collected scores
+      const updatedLobbyData = {
+        ...lobbyData,
+        allPlayerScores: allPlayerScores,
+        scores: players.map((p: string) => allPlayerScores[p] || 0)
+      }
+      
+      // Save the updated data
+      localStorage.setItem(`quizcraft:lobby-scores:${lobbyId}`, JSON.stringify(updatedLobbyData))
+      console.log('Collected all player scores:', updatedLobbyData)
+      
+      return updatedLobbyData
+    } catch (error) {
+      console.error('Error collecting player scores:', error)
+      return null
+    }
+  }
+
+  // Check if scores are confirmed (ready to resolve)
+  const hasConfirmedScores = (lobbyId: string) => {
+    try {
+      const scoresData = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`)
+      if (!scoresData) return false
+      const { status } = JSON.parse(scoresData)
+      return status === 'confirmed'
+    } catch {
+      return false
+    }
+  }
+
+  // Resolve and distribute prize (only game master)
+  const resolveLobbyPrize = async (lobbyId: string) => {
+    if (!account || !gameMaster || account.toLowerCase() !== gameMaster.toLowerCase()) {
+      toast({ title: "Unauthorized", description: "Only the game master can resolve.", variant: "destructive" })
+      return
+    }
+    try {
+      const raw = localStorage.getItem(`quizcraft:lobby-scores:${lobbyId}`)
+      if (!raw) {
+        toast({ title: "No leaderboard", description: "No leaderboard found for this lobby.", variant: "destructive" })
+        return
+      }
+      const data = JSON.parse(raw)
+      const top = Array.isArray(data.leaderboard) && data.leaderboard.length > 0 ? data.leaderboard[0] : null
+      if (!top) {
+        toast({ title: "No winner", description: "Leaderboard is missing or empty.", variant: "destructive" })
+        return
+      }
+      const response = await fetch('/api/resolve-game', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_RESOLVE_GAME_API_KEY || 'default-secret'}`
+        },
+        body: JSON.stringify({ lobbyId, winnerAddress: top })
+      })
+      if (response.ok) {
+        const result = await response.json()
+        toast({ title: 'Game Resolved', description: `Prize distributed. Tx: ${result.transactionHash}`, duration: 5000 })
+      } else {
+        const error = await response.json()
+        toast({ title: 'Resolve failed', description: error.error || 'Unable to resolve.', variant: 'destructive' })
+      }
+    } catch (e: any) {
+      toast({ title: 'Resolve failed', description: e?.message || 'Unable to resolve.', variant: 'destructive' })
+    }
+  }
+
+  const fetchLobbies = useCallback(async () => {
+    try {
+      // Always use real contract now
+      if (false) {
+        const mockLobbies: Lobby[] = [
+          { id: "1", name: "Lightning Duel", category: "Technology", mode: "⚡ Lightning Duel", entryFee: "2", currentPlayers: 1, maxPlayers: 2, isActive: true },
+          { id: "2", name: "Battle Royale", category: "Crypto", mode: "🏆 Battle Royale", entryFee: "5", currentPlayers: 3, maxPlayers: 5, isActive: true },
+          { id: "3", name: "Quick Match", category: "Science", mode: "🚀 Quick Match", entryFee: "1", currentPlayers: 2, maxPlayers: 2, isActive: false },
+        ]
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        setLobbies(mockLobbies)
+        return
+      }
+
+      // Real on-chain fetch
+      const onchainProvider = new ethers.BrowserProvider(window.ethereum)
+      const readContract = new ethers.Contract(
+        CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+        QUIZ_CRAFT_ARENA_ABI,
+        onchainProvider
+      )
+
+      setDebugInfo("Fetching from contract...")
+      const nextLobbyId: bigint = await readContract.nextLobbyId()
+      const lobbyCount = Number(nextLobbyId)
+      setDebugInfo(`Found ${lobbyCount} lobbies`)
+      
+      const fetched: Lobby[] = []
+      for (let i = 0; i < lobbyCount; i++) {
+        try {
+          const lobby = await readContract.lobbies(i)
+          // lobby: { id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, winner, prizeDistributed, creator }
+          const entryFeeCFX = ethers.formatEther(lobby.entryFee)
+          const status = Number(lobby.status)
+          const playerCount = Number(lobby.playerCount)
+          const maxPlayers = Number(lobby.maxPlayers)
+          
+          // Determine lobby status
+          let isActive = false
+          let statusText = ""
+          if (status === 0) { // OPEN
+            isActive = playerCount < maxPlayers
+            statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
+          } else if (status === 1) { // FULL
+            isActive = false
+            statusText = "Full - Game starting"
+          } else if (status === 2) { // IN_PROGRESS
+            isActive = false
+            statusText = "Game in progress"
+          } else if (status === 3) { // COMPLETED
+            isActive = false
+            statusText = "Completed"
+          } else if (status === 4) { // CANCELLED
+            isActive = false
+            statusText = "Cancelled"
+          }
+
+          // Check if current user is in this lobby
+          let isUserInLobby = false
+          if (account) {
+            try {
+              isUserInLobby = await readContract.isPlayerInLobby(i, account)
+              console.log(`User ${account} in lobby ${i}:`, isUserInLobby)
+            } catch (err) {
+              console.error(`Error checking if user in lobby ${i}:`, err)
+            }
+          }
+
+          fetched.push({
+            id: String(lobby.id),
+            name: lobby.name,
+            category: lobby.category,
+            mode: `🎯 ${lobby.name}`,
+            entryFee: entryFeeCFX,
+            currentPlayers: playerCount,
+            maxPlayers: maxPlayers,
+            isActive: isActive,
+            creator: lobby.creator,
+            status: statusText,
+            isUserInLobby: isUserInLobby,
+          })
+        } catch (err) {
+          console.error(`Error fetching lobby ${i}:`, err)
+        }
+      }
+      setLobbies(fetched)
+      setDebugInfo(`Loaded ${fetched.length} lobbies`)
+
+      // Check if current account is owner and fetch admin data
+      if (account) {
+        try {
+          const owner = await readContract.owner()
+          const isOwnerAccount = owner.toLowerCase() === account.toLowerCase()
+          setIsOwner(isOwnerAccount)
+
+          if (isOwnerAccount) {
+            const fee = await readContract.platformFeeBps()
+            const gm = await readContract.gameMaster()
+            setPlatformFee(Number(fee))
+            setGameMaster(gm)
+          }
+        } catch (err) {
+          console.error("Error fetching admin data:", err)
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching lobbies:", error)
+      setDebugInfo(`Error: ${error}`)
+      setLobbies([])
+    } finally {
+      setLoading(false)
+    }
+  }, [account])
+
+  useEffect(() => {
+    setLoading(true)
+    fetchLobbies()
+  }, [fetchLobbies, isConnected, isOnConflux])
+
+  // Listen to contract events for live updates (no page reload)
   useEffect(() => {
     if (!isConnected || !isOnConflux) return
 
     let contract: ethers.Contract | null = null
+    let debounceTimer: any = null
     const events = [
       'LobbyCreated',
       'PlayerJoined', 
@@ -175,44 +361,128 @@ export default function ArenaPage() {
       'GameMasterUpdated'
     ]
 
+    const triggerRefresh = () => {
+      clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(() => {
+        // Re-fetch lobbies without full reload
+        (async () => {
+          try {
+            setLoading(true)
+            const provider = new ethers.BrowserProvider(window.ethereum)
+            const readContract = new ethers.Contract(
+              CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+              QUIZ_CRAFT_ARENA_ABI,
+              provider
+            )
+            const nextLobbyId: bigint = await readContract.nextLobbyId()
+            const lobbyCount = Number(nextLobbyId)
+            const fetched: Lobby[] = []
+            for (let i = 0; i < lobbyCount; i++) {
+              try {
+                const lobby = await readContract.lobbies(i)
+                const entryFeeCFX = ethers.formatEther(lobby.entryFee)
+                const status = Number(lobby.status)
+                const playerCount = Number(lobby.playerCount)
+                const maxPlayers = Number(lobby.maxPlayers)
+                let isActive = false
+                let statusText = ""
+                if (status === 0) { isActive = playerCount < maxPlayers; statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players` }
+                else if (status === 1) { statusText = "Full - Game starting" }
+                else if (status === 2) { statusText = "Game in progress" }
+                else if (status === 3) { statusText = "Completed" }
+                else if (status === 4) { statusText = "Cancelled" }
+                let isUserInLobby = false
+                if (account) {
+                  try { isUserInLobby = await readContract.isPlayerInLobby(i, account) } catch {}
+                }
+                fetched.push({
+                  id: String(lobby.id),
+                  name: lobby.name,
+                  category: lobby.category,
+                  mode: `🎯 ${lobby.name}`,
+                  entryFee: entryFeeCFX,
+                  currentPlayers: playerCount,
+                  maxPlayers,
+                  isActive,
+                  creator: lobby.creator,
+                  status: statusText,
+                  isUserInLobby,
+                })
+              } catch {}
+            }
+            setLobbies(fetched)
+          } finally {
+            setLoading(false)
+          }
+        })()
+      }, 2000) // Increased debounce to 2 seconds to reduce rate limiting
+    }
+
     const setupEventListeners = async () => {
       try {
+        // Add delay to avoid rate limiting
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
         const provider = new ethers.BrowserProvider(window.ethereum)
         contract = new ethers.Contract(
           CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
           QUIZ_CRAFT_ARENA_ABI,
           provider
         )
-
+        
+        // Set up event listeners with error handling
         events.forEach(eventName => {
           contract!.on(eventName, (...args) => {
             console.log(`Event ${eventName}:`, args)
-            // Refresh lobbies when any relevant event occurs
-            setTimeout(() => {
-              window.location.reload()
-            }, 1000) // Small delay to ensure transaction is mined
+            triggerRefresh()
           })
         })
-      } catch (error) {
+        
+        console.log("Event listeners set up successfully")
+      } catch (error: any) {
         console.error("Error setting up event listeners:", error)
+        
+        // Handle rate limiting specifically
+        if (error.code === -32005 || error.message?.includes('rate exceeded') || error.message?.includes('Too many requests')) {
+          console.warn("Rate limited, falling back to periodic refresh")
+          // Fallback to periodic refresh instead of events
+          const fallbackInterval = setInterval(() => {
+            console.log("Fallback: Refreshing lobbies periodically")
+            fetchLobbies()
+          }, 30000) // Refresh every 30 seconds
+          
+          return () => clearInterval(fallbackInterval)
+        }
       }
     }
 
-    setupEventListeners()
+    // Temporarily disable event listeners to avoid rate limiting
+    // setupEventListeners()
+    
+    // Use periodic refresh instead
+    const refreshInterval = setInterval(() => {
+      console.log("Periodic refresh: Updating lobbies")
+      fetchLobbies()
+    }, 30000) // Refresh every 30 seconds
 
-    // Cleanup function
     return () => {
+      clearTimeout(debounceTimer)
+      clearInterval(refreshInterval)
       if (contract) {
-        events.forEach(eventName => {
-          contract!.off(eventName)
-        })
+        try {
+          events.forEach(eventName => { 
+            contract!.off(eventName) 
+          })
+        } catch (error) {
+          console.warn("Error cleaning up event listeners:", error)
+        }
       }
     }
-  }, [isConnected, isOnConflux])
+  }, [isConnected, isOnConflux, account, fetchLobbies])
 
   const joinLobby = async (lobby: Lobby) => {
     if (!signer || !isConnected) {
-      alert("Please connect your wallet first")
+      toast({ title: "Connect wallet", description: "Please connect your wallet to join.", variant: "destructive" })
       return
     }
 
@@ -224,13 +494,13 @@ export default function ArenaPage() {
 
     // Check if lobby is full (only for new players)
     if (lobby.currentPlayers >= lobby.maxPlayers) {
-      alert("This lobby is full!")
+      toast({ title: "Lobby is full", description: "Please choose another lobby.", variant: "destructive" })
       return
     }
 
     // Check if lobby is not active (only for new players)
     if (!lobby.isActive) {
-      alert("This lobby is not accepting new players right now")
+      toast({ title: "Lobby not joinable", description: "This lobby is currently not accepting new players.", variant: "destructive" })
       return
     }
 
@@ -274,21 +544,26 @@ export default function ArenaPage() {
         const receipt = await tx.wait()
         console.log("Transaction confirmed:", receipt)
 
-        // Show success message
-        alert(`Successfully joined "${lobby.name}"! You paid ${lobby.entryFee} CFX entry fee. Waiting for other players to join...`)
-        
-        // Refresh the page to update lobby status
-        window.location.reload()
+        // Success toast and redirect to the lobby for immediate access
+        toast({ title: "Joined lobby", description: `Entered ${lobby.name} (${lobby.entryFee} CFX)`, duration: 2000 })
+        // Persist joined flag for smoother navigation to lobby page
+        try {
+          if (account) sessionStorage.setItem(`quizcraft:joined:${lobby.id}:${account.toLowerCase()}`, 'true')
+        } catch {}
+        // Optimistically mark as in lobby
+        setLobbies(prev => prev.map(l => l.id === lobby.id ? { ...l, isUserInLobby: true, currentPlayers: l.currentPlayers + 1 } : l))
+        // Navigate to lobby after a short delay
+        setTimeout(() => { window.location.href = `/arena/${Number(lobby.id)}` }, 300)
       }
     } catch (error: any) {
       console.error("Error joining lobby:", error)
 
       if (error.code === "ACTION_REJECTED") {
-        alert("Transaction was rejected")
+        toast({ title: "Transaction rejected", description: "You cancelled the join.", variant: "destructive" })
       } else if (error.code === "INSUFFICIENT_FUNDS") {
-        alert("Insufficient CFX balance")
+        toast({ title: "Insufficient funds", description: "Not enough CFX to cover entry fee.", variant: "destructive" })
       } else {
-        alert("Failed to join lobby. Please try again.")
+        toast({ title: "Join failed", description: "Please try again.", variant: "destructive" })
       }
     } finally {
       setJoiningLobby(null)
@@ -297,30 +572,30 @@ export default function ArenaPage() {
 
   const createLobby = async () => {
     if (!signer || !isConnected) {
-      alert("Please connect your wallet first")
+      toast({ title: "Connect wallet", description: "Please connect your wallet to create a lobby.", variant: "destructive" })
       return
     }
 
     // Validate form data
     if (!lobbyForm.name.trim()) {
-      alert("Lobby name cannot be empty")
+      toast({ title: "Invalid name", description: "Lobby name cannot be empty.", variant: "destructive" })
       return
     }
 
     if (!lobbyForm.category.trim()) {
-      alert("Category cannot be empty")
+      toast({ title: "Invalid category", description: "Please select a quiz category.", variant: "destructive" })
       return
     }
 
     const entryFee = parseFloat(lobbyForm.entryFee)
     if (isNaN(entryFee) || entryFee <= 0) {
-      alert("Please enter a valid entry fee greater than 0")
+      toast({ title: "Invalid entry fee", description: "Enter a fee greater than 0.", variant: "destructive" })
       return
     }
 
     const maxPlayers = parseInt(lobbyForm.maxPlayers)
     if (isNaN(maxPlayers) || maxPlayers < 2 || maxPlayers > 10) {
-      alert("Please enter a valid number of players between 2 and 10")
+      toast({ title: "Invalid players", description: "Players must be between 2 and 10.", variant: "destructive" })
       return
     }
 
@@ -335,7 +610,7 @@ export default function ArenaPage() {
       console.log("Create lobby transaction sent:", tx.hash)
       await tx.wait()
       console.log("Lobby created successfully")
-      
+      toast({ title: "Lobby created", description: `"${lobbyForm.name}" is now live.`, duration: 4000 })
       // Show success modal
       setCreatedLobbyName(lobbyForm.name)
       setIsSuccessModalOpen(true)
@@ -345,10 +620,10 @@ export default function ArenaPage() {
       setIsCreateModalOpen(false)
       
       // Refresh lobbies
-      window.location.reload()
+      // Trigger soft refresh via events; optional manual refresh
     } catch (error: any) {
       console.error("Error creating lobby:", error)
-      alert(`Failed to create lobby: ${error.message || "Please try again."}`)
+      toast({ title: "Create failed", description: error.message || "Please try again.", variant: "destructive" })
     } finally {
       setCreatingLobby(false)
     }
@@ -358,7 +633,7 @@ export default function ArenaPage() {
     if (!signer || !isOwner) return
     const fee = parseInt(newFee)
     if (isNaN(fee) || fee < 0 || fee > 1000) {
-      alert("Fee must be between 0 and 1000 basis points (0-10%)")
+      toast({ title: "Invalid fee", description: "Fee must be 0-1000 bps (0-10%).", variant: "destructive" })
       return
     }
     setUpdatingFee(true)
@@ -368,10 +643,10 @@ export default function ArenaPage() {
       await tx.wait()
       setPlatformFee(fee)
       setNewFee("")
-      alert("Platform fee updated successfully!")
+      toast({ title: "Fee updated", description: `Platform fee set to ${fee} bps.` })
     } catch (error: any) {
       console.error("Error updating fee:", error)
-      alert(`Failed to update fee: ${error.message}`)
+      toast({ title: "Update failed", description: error.message, variant: "destructive" })
     } finally {
       setUpdatingFee(false)
     }
@@ -380,7 +655,7 @@ export default function ArenaPage() {
   const updateGameMaster = async () => {
     if (!signer || !isOwner) return
     if (!newGameMaster || !ethers.isAddress(newGameMaster)) {
-      alert("Please enter a valid Ethereum address")
+      toast({ title: "Invalid address", description: "Please enter a valid address.", variant: "destructive" })
       return
     }
     setUpdatingGameMaster(true)
@@ -390,10 +665,10 @@ export default function ArenaPage() {
       await tx.wait()
       setGameMaster(newGameMaster)
       setNewGameMaster("")
-      alert("Game master updated successfully!")
+      toast({ title: "Game master updated", description: `New GM: ${newGameMaster}` })
     } catch (error: any) {
       console.error("Error updating game master:", error)
-      alert(`Failed to update game master: ${error.message}`)
+      toast({ title: "Update failed", description: error.message, variant: "destructive" })
     } finally {
       setUpdatingGameMaster(false)
     }
@@ -483,9 +758,24 @@ export default function ArenaPage() {
           <h1 className="font-montserrat font-bold text-4xl md:text-5xl mb-4">
             Live <span className="text-accent">Arena</span>
           </h1>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+          <p className="text-xl text-muted-foreground max-w-3xl mx-auto mb-6">
             Enter competitive lobbies and battle other players for CFX rewards. Winner takes all!
           </p>
+          
+          {/* Manual refresh button */}
+          <Button
+            onClick={() => {
+              console.log("Manual refresh triggered")
+              fetchLobbies()
+            }}
+            variant="outline"
+            size="sm"
+            className="mb-4"
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Refreshing...' : 'Refresh Lobbies'}
+          </Button>
           
           {/* Debug info */}
           {debugInfo && (
@@ -757,16 +1047,30 @@ export default function ArenaPage() {
         {loading ? (
           <div className="grid gap-6">
             {[...Array(4)].map((_, i) => (
-              <Card key={i} className="border-2 border-muted/20">
-                <CardContent className="p-8">
-                  <div className="animate-pulse space-y-4">
-                    <div className="h-8 bg-muted rounded w-1/3"></div>
-                    <div className="h-6 bg-muted rounded w-1/2"></div>
-                    <div className="h-12 bg-muted rounded w-32"></div>
+              <Card key={i} className="border-2 border-muted/20 overflow-hidden">
+                <CardContent className="p-8 relative">
+                  <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent animate-[shimmer_1.6s_infinite]" />
+                  <div className="space-y-5">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-muted rounded-xl" />
+                      <div className="space-y-2">
+                        <div className="h-6 w-56 bg-muted rounded" />
+                        <div className="h-4 w-80 bg-muted/80 rounded" />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div className="h-5 w-36 bg-muted rounded" />
+                      <div className="h-5 w-28 bg-muted rounded" />
+                      <div className="h-5 w-32 bg-muted rounded" />
+                    </div>
+                    <div className="h-12 w-40 bg-muted rounded-lg" />
                   </div>
                 </CardContent>
               </Card>
             ))}
+            <style jsx global>{`
+              @keyframes shimmer { 100% { transform: translateX(100%); } }
+            `}</style>
           </div>
         ) : (
           <div className="grid gap-6">
@@ -777,9 +1081,11 @@ export default function ArenaPage() {
                 className={`relative overflow-hidden group hover:shadow-2xl transition-all duration-500 border-2 ${
                   lobby.isActive ? "hover:border-accent/50 border-accent/20" : "opacity-60 border-muted/20"
                 }`}
+                aria-label={`Lobby ${lobby.name}`}
               >
                 <div
                   className={`absolute inset-0 bg-gradient-to-br ${getLobbyGradient(lobby.mode)} rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`}
+                  aria-hidden
                 />
 
                 <CardContent className="relative p-8">
@@ -794,24 +1100,39 @@ export default function ArenaPage() {
                         <div>
                           <h3 className="text-2xl font-montserrat font-bold">{lobby.mode}</h3>
                           <div className="flex items-center gap-2 mt-1">
-                                                    {lobby.isUserInLobby && (
-                          <Badge variant="default" className="bg-green-500 text-white">
-                            You're in this lobby
-                          </Badge>
-                        )}
-                        <Badge variant="outline" className="text-xs">
-                          Players: {lobby.currentPlayers}/{lobby.maxPlayers}
-                        </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          InLobby: {lobby.isUserInLobby ? "Yes" : "No"}
-                        </Badge>
-                            {lobby.status && (
-                              <Badge variant="outline" className="text-blue-600 border-blue-600">
-                                {lobby.status}
+                            {lobby.isUserInLobby && (
+                              <Badge variant="default" className="bg-green-500 text-white" aria-label="You're in this lobby">
+                                You're in this lobby
                               </Badge>
                             )}
+                            <Badge variant="outline" className="text-xs" aria-label={`Players ${lobby.currentPlayers} of ${lobby.maxPlayers}`}>
+                              Players: {lobby.currentPlayers}/{lobby.maxPlayers}
+                            </Badge>
+                            {lobby.status && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${
+                                        lobby.status.includes('Full') ? 'text-amber-600 border-amber-600' :
+                                        lobby.status.includes('Completed') ? 'text-purple-700 border-purple-700' :
+                                        lobby.status.includes('progress') ? 'text-blue-700 border-blue-700' :
+                                        'text-slate-600 border-slate-600'
+                                      }`}
+                                      aria-label={`Status ${lobby.status}`}
+                                    >
+                                      {lobby.status}
+                                    </Badge>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Lobby status: {lobby.status}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
                             {!lobby.isActive && !lobby.isUserInLobby && (
-                              <Badge variant="secondary">
+                              <Badge variant="secondary" aria-label={lobby.currentPlayers >= lobby.maxPlayers ? 'Full' : 'Not Joinable'}>
                                 {lobby.currentPlayers >= lobby.maxPlayers ? "Full" : "Not Joinable"}
                               </Badge>
                             )}
@@ -842,35 +1163,87 @@ export default function ArenaPage() {
                       </div>
                     </div>
 
-                    {lobby.isUserInLobby ? (
-                      <Button
-                        onClick={() => window.location.href = `/arena/${Number(lobby.id)}`}
-                        size="lg"
-                        className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 bg-green-500 hover:bg-green-600 text-white"
-                      >
-                        <Swords className="mr-3 h-5 w-5" />
-                        🚀 Enter Lobby
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={() => joinLobby(lobby)}
-                        disabled={(!lobby.isActive && !lobby.isUserInLobby) || joiningLobby === lobby.id}
-                        size="lg"
-                        className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-accent/25"
-                      >
-                        {joiningLobby === lobby.id ? (
-                          <>
-                            <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                            Joining Battle...
-                          </>
-                        ) : (
-                          <>
+                    <div className="flex flex-col gap-3">
+                      {/* Score Status */}
+                      {hasPendingScores(lobby.id) && (
+                        <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
+                          <Clock className="h-4 w-4" />
+                          <span className="text-sm font-medium">Scores in progress...</span>
+                        </div>
+                      )}
+                      
+                      {/* Action Buttons */}
+                      <div className="flex gap-2">
+                        {lobby.isUserInLobby ? (
+                          <Button
+                            onClick={() => window.location.href = `/arena/${Number(lobby.id)}`}
+                            size="lg"
+                            className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 bg-green-500 hover:bg-green-600 text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-green-600"
+                            aria-label={`Enter lobby ${lobby.name}`}
+                          >
                             <Swords className="mr-3 h-5 w-5" />
-                            Enter Battle ({lobby.entryFee} CFX)
-                          </>
+                            🚀 Enter Lobby
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => joinLobby(lobby)}
+                            disabled={(!lobby.isActive && !lobby.isUserInLobby) || joiningLobby === lobby.id}
+                            size="lg"
+                            className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
+                            aria-label={`Join lobby ${lobby.name} for ${lobby.entryFee} CFX`}
+                          >
+                            {joiningLobby === lobby.id ? (
+                              <>
+                                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                                Joining Battle...
+                              </>
+                            ) : (
+                              <>
+                                <Swords className="mr-3 h-5 w-5" />
+                                Enter Battle ({lobby.entryFee} CFX)
+                              </>
+                            )}
+                          </Button>
                         )}
-                      </Button>
-                    )}
+                        
+                        {/* Update Scores Button (only for game master) */}
+                        {hasPendingScores(lobby.id) && account && gameMaster && account.toLowerCase() === gameMaster.toLowerCase() && (
+                          <Button
+                            onClick={() => updateLobbyScores(lobby.id)}
+                            disabled={updatingScores === lobby.id}
+                            size="lg"
+                            variant="outline"
+                            className="h-14 px-6 text-lg font-semibold border-amber-500 text-amber-600 hover:bg-amber-50"
+                            aria-label={`Update scores for lobby ${lobby.name}`}
+                          >
+                            {updatingScores === lobby.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                                Updating...
+                              </>
+                            ) : (
+                              <>
+                                <Trophy className="mr-2 h-5 w-5" />
+                                Update Scores
+                              </>
+                            )}
+                          </Button>
+                        )}
+
+                        {/* Resolve & Distribute Prize (only for game master, after confirmation) */}
+                        {hasConfirmedScores(lobby.id) && account && gameMaster && account.toLowerCase() === gameMaster.toLowerCase() && (
+                          <Button
+                            onClick={() => resolveLobbyPrize(lobby.id)}
+                            size="lg"
+                            className="h-14 px-6 text-lg font-semibold bg-purple-600 hover:bg-purple-700 text-white"
+                            aria-label={`Resolve and distribute prize for lobby ${lobby.name}`}
+                          >
+                            <Trophy className="mr-2 h-5 w-5" />
+                            Resolve & Distribute
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
