@@ -4,7 +4,7 @@ const hre = require("hardhat");
 async function main() {
   const initialFeeBps = 500;
   const Quizcraftarena = await hre.ethers.getContractFactory("QuizCraftArena")
-  const quizcraftarena = await Quizcraftarena.deploy(initialFeeBps);
+  const quizcraftarena = await Quizcraftarena.deploy();
   await quizcraftarena.deployed();
   console.log("Quizcraftarena deployed to:", quizcraftarena.address);
 
