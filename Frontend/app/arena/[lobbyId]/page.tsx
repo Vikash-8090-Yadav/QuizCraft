@@ -52,11 +52,24 @@ export default function LobbyPage() {
   const [isLeaderboardSet, setIsLeaderboardSet] = useState(false)
   const [rawStatus, setRawStatus] = useState<number | null>(null)
   const [prizeDistributedOnChain, setPrizeDistributedOnChain] = useState<boolean | null>(null)
+  const [resolvingPrize, setResolvingPrize] = useState(false)
+  const [gameStartCountdown, setGameStartCountdown] = useState<number | null>(null)
 
   const lobbyId = params.lobbyId as string
   const numericLobbyId = Number(lobbyId)
 
   const [joinedHint, setJoinedHint] = useState<boolean>(false)
+
+  // Persisted finished state: keep leaderboard visible permanently after a quiz ends
+  useEffect(() => {
+    try {
+      const finishedFlag = typeof window !== 'undefined' ? sessionStorage.getItem(`quizcraft:finished:${lobbyId}`) : null
+      if (finishedFlag === 'true') {
+        setGameFinished(true)
+        setGameStarted(false)
+      }
+    } catch {}
+  }, [lobbyId])
 
   useEffect(() => {
     try {
@@ -71,8 +84,7 @@ export default function LobbyPage() {
     }
   }, [account, lobbyId])
 
-  useEffect(() => {
-    const fetchLobbyDetails = async () => {
+  const fetchLobbyDetails = async () => {
       console.log("Lobby page loaded for lobbyId:", lobbyId)
       console.log("isConnected:", isConnected, "isOnConflux:", isOnConflux, "account:", account)
 
@@ -102,14 +114,15 @@ export default function LobbyPage() {
         let statusText = ""
         if (status === 0) { // OPEN
           statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
-        } else if (status === 1) { // FULL
-          // Check if game is actually finished locally
+        } else if (status === 1) { // STARTED
           if (gameFinished) {
             statusText = "Game Completed"
           } else if (gameStarted) {
             statusText = "Game in progress"
+          } else if (playerCount >= maxPlayers) {
+            statusText = "All players joined - Game starting soon"
           } else {
-            statusText = "Full - Game starting"
+            statusText = `${playerCount}/${maxPlayers} players - Waiting for more players`
           }
         } else if (status === 2) { // IN_PROGRESS
           statusText = "Game in progress"
@@ -189,7 +202,7 @@ export default function LobbyPage() {
         setLobby(lobbyInfo)
         setPlayers(playersList)
         setIsUserInLobby(userInLobby)
-        setPrizeDistributedOnChain(Boolean(lobbyData.prizeDistributed))
+        setPrizeDistributedOnChain(lobbyData.distribution === 1) // 1 = DISTRIBUTED
         
         // Compute timing details based on createdAt + LOBBY_TIMEOUT
         try {
@@ -207,10 +220,7 @@ export default function LobbyPage() {
           // ignore timing calculation errors
         }
         
-        // Start game when lobby becomes FULL (contract does not set IN_PROGRESS status)
-        if (status === 1 && !gameStarted) { // FULL
-          setGameStarted(true)
-        }
+        // Game start is now handled by the countdown timer effect above
 
         // Check if game is completed and get winner
         if (status === 3) { // COMPLETED
@@ -225,6 +235,7 @@ export default function LobbyPage() {
       }
     }
 
+  useEffect(() => {
     fetchLobbyDetails()
   }, [lobbyId, isConnected, isOnConflux, account, joinedHint])
 
@@ -266,6 +277,38 @@ export default function LobbyPage() {
     return () => clearTimeout(t)
   }, [expiresInSec])
 
+  // Game start countdown timer
+  useEffect(() => {
+    if (gameStartCountdown === null) return
+    if (gameStartCountdown <= 0) {
+      setGameStarted(true)
+      setGameStartCountdown(null)
+      return
+    }
+    const t = setTimeout(() => setGameStartCountdown((s) => (s ? s - 1 : 0)), 1000)
+    return () => clearTimeout(t)
+  }, [gameStartCountdown])
+
+  // Auto-start game when all players join
+  useEffect(() => {
+    if (lobby && players.length >= lobby.maxPlayers && !gameStarted && !gameFinished && !gameStartCountdown) {
+      console.log("All players joined, starting 10-second countdown")
+      setGameStartCountdown(10)
+    }
+  }, [lobby, players.length, gameStarted, gameFinished, gameStartCountdown])
+
+  // Poll for lobby updates when waiting for players
+  useEffect(() => {
+    if (gameStarted || gameFinished) return
+    
+    const pollInterval = setInterval(() => {
+      // Re-fetch lobby details to check for new players
+      fetchLobbyDetails()
+    }, 2000) // Poll every 2 seconds
+    
+    return () => clearInterval(pollInterval)
+  }, [gameStarted, gameFinished])
+
   const claimRefund = async () => {
     if (!signer || !isUserInLobby) return
     try {
@@ -283,22 +326,6 @@ export default function LobbyPage() {
     }
   }
 
-  const withdrawRefund = async () => {
-    if (!signer) return
-    try {
-      const contract = new ethers.Contract(
-        CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
-        QUIZ_CRAFT_ARENA_ABI,
-        signer
-      )
-      const tx = await contract.withdrawRefund()
-      await tx.wait()
-      alert('Refund withdrawn to your wallet.')
-    } catch (e: any) {
-      console.error('withdrawRefund error', e)
-      alert(e?.message || 'Failed to withdraw refund')
-    }
-  }
 
   const claimPrize = async () => {
     if (!signer || !winner || winner.toLowerCase() !== account?.toLowerCase()) return
@@ -334,41 +361,92 @@ export default function LobbyPage() {
     }
   }
 
-  const startGame = async () => {
-    if (!signer || !isUserInLobby) return
-    setStartingGame(true)
+  const resolvePrizeAsCreator = async () => {
+    if (!signer || !lobby?.creator || lobby.creator.toLowerCase() !== account?.toLowerCase()) return
+    setResolvingPrize(true)
     try {
-      // For now, we'll just set the game as started locally
-      // In a full implementation, this would call a contract function to set status to IN_PROGRESS
-      setGameStarted(true)
-      alert('Game started! The quiz will begin shortly.')
+      // Determine winner from Supabase first, then fallback to on-chain, then local
+      let winnerAddress = winner
+      
+      if (!winnerAddress) {
+        try {
+          // Try to get winner from Supabase
+          const response = await fetch(`/api/scores/all-players?lobbyId=${lobbyId}`)
+          if (response.ok) {
+            const data = await response.json()
+            if (data.winner) {
+              winnerAddress = data.winner
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching winner from Supabase:', e)
+        }
+      }
+
+      if (!winnerAddress) {
+        // Fallback to on-chain scores
+        try {
+          const provider = new ethers.BrowserProvider((window as any).ethereum)
+          const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, provider)
+          const players = await contract.getPlayersInLobby(numericLobbyId)
+          const scores = []
+          for (const player of players) {
+            const score = await contract.playerScores(numericLobbyId, player)
+            scores.push(Number(score))
+          }
+          if (players.length > 0 && scores.length > 0) {
+            const maxScore = Math.max(...scores)
+            const winnerIndex = scores.findIndex(s => s === maxScore)
+            if (winnerIndex >= 0) {
+              winnerAddress = players[winnerIndex]
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching winner from contract:', e)
+        }
+      }
+
+      if (!winnerAddress) {
+        // Final fallback to local winner
+        if (gameResults.length > 0) {
+          const localWinner = gameResults.reduce((prev, current) => 
+            prev.score > current.score ? prev : current
+          )
+          winnerAddress = localWinner.player
+        }
+      }
+
+      if (!winnerAddress) {
+        alert('Could not determine winner. Please try again.')
+        return
+      }
+
+      // Execute the prize payout directly using the user's wallet
+      const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
+      
+      // Call executeWinnerPayout on-chain using the creator's wallet
+      const tx = await contract.executeWinnerPayout(numericLobbyId, winnerAddress)
+      console.log("executeWinnerPayout transaction sent:", tx.hash)
+      
+      // Wait for confirmation
+      const receipt = await tx.wait()
+      console.log("Prize payout transaction confirmed:", receipt)
+
+      alert(`Prize resolved on-chain! Winner: ${winnerAddress.slice(0, 6)}...${winnerAddress.slice(-4)}. Transaction: ${tx.hash}`)
+      
+      // Refresh lobby data to show updated status
+      window.location.reload()
+      
     } catch (e: any) {
-      console.error('startGame error', e)
-      alert(e?.message || 'Failed to start game')
+      console.error('resolvePrizeAsCreator error', e)
+      alert(e?.message || 'Failed to resolve prize')
     } finally {
-      setStartingGame(false)
+      setResolvingPrize(false)
     }
   }
 
-  // Read pending returns for current user
-  useEffect(() => {
-    const readPending = async () => {
-      try {
-        if (!account || !isOnConflux) return
-        const provider = new ethers.BrowserProvider((window as any).ethereum)
-        const contract = new ethers.Contract(
-          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
-          QUIZ_CRAFT_ARENA_ABI,
-          provider
-        )
-        const amount: bigint = await contract.pendingReturns(account)
-        setPendingReturns(ethers.formatEther(amount))
-      } catch {
-        setPendingReturns(null)
-      }
-    }
-    readPending()
-  }, [account, isOnConflux, lobbyId])
+  // Game starts automatically when lobby is full - no manual start needed
+
 
   // Fetch scores and leaderboard from smart contract
   useEffect(() => {
@@ -379,18 +457,23 @@ export default function LobbyPage() {
         const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, provider)
         
         // Check if leaderboard is set and read it if present
-        const leaderboardSet = await contract.isLeaderboardSet(numericLobbyId)
+        const leaderboardSet = await contract.leaderboardSet(numericLobbyId)
         setIsLeaderboardSet(leaderboardSet)
         console.log('Leaderboard set on-chain:', leaderboardSet)
         
         if (leaderboardSet) {
-          const leaderboard = await contract.getLeaderboard(numericLobbyId)
+          const leaderboard = await contract.lobbyLeaderboard(numericLobbyId, 0) // Get first entry, need to loop for all
           setContractLeaderboard(leaderboard)
           console.log('On-chain leaderboard:', leaderboard)
         }
 
-        // Always read all scores to display full participant list
-        const [players, scores] = await contract.getAllScores(numericLobbyId)
+        // Read player scores individually since getAllScores doesn't exist in new contract
+        const players = await contract.getPlayersInLobby(numericLobbyId)
+        const scores: bigint[] = []
+        for (const player of players) {
+          const score = await contract.playerScores(numericLobbyId, player)
+          scores.push(score)
+        }
         const scoresData = players.map((player: string, index: number) => ({
           address: player,
           score: Number(scores[index])
@@ -434,16 +517,21 @@ export default function LobbyPage() {
       const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, provider)
       
       // Check if leaderboard is set and read it if present
-      const leaderboardSet = await contract.isLeaderboardSet(numericLobbyId)
+      const leaderboardSet = await contract.leaderboardSet(numericLobbyId)
       setIsLeaderboardSet(leaderboardSet)
       
       if (leaderboardSet) {
-        const leaderboard = await contract.getLeaderboard(numericLobbyId)
+        const leaderboard = await contract.lobbyLeaderboard(numericLobbyId, 0) // Get first entry, need to loop for all
         setContractLeaderboard(leaderboard)
       }
 
-      // Read all scores
-      const [players, scores] = await contract.getAllScores(numericLobbyId)
+      // Read player scores individually since getAllScores doesn't exist in new contract
+      const players = await contract.getPlayersInLobby(numericLobbyId)
+      const scores: bigint[] = []
+      for (const player of players) {
+        const score = await contract.playerScores(numericLobbyId, player)
+        scores.push(score)
+      }
       const scoresData = players.map((player: string, index: number) => ({
         address: player,
         score: Number(scores[index])
@@ -778,26 +866,63 @@ export default function LobbyPage() {
         {/* Real-time Scores from Supabase - Show before game starts and after game ends */}
         {(!gameStarted || gameFinished) && (
           <RealTimeScores 
+            key={`scores-${gameFinished ? 'finished' : 'waiting'}`}
             lobbyId={lobbyId} 
             refreshInterval={3000}
             gameState={gameFinished ? 'finished' : 'waiting'}
-            currentPlayerAddress={account}
+            currentPlayerAddress={account || undefined}
           />
         )}
 
+        {/* Creator-only Resolve Prize Button */}
+        {lobby?.creator && account && lobby?.creator?.toLowerCase() === account.toLowerCase() && gameFinished && !prizeDistributedOnChain && (
+          <Card className="mb-8">
+            <CardContent className="p-6">
+              <div className="text-center">
+                <div className="flex items-center justify-center gap-3 mb-4">
+                  <Trophy className="h-8 w-8 text-yellow-500" />
+                  <h3 className="text-xl font-semibold">Resolve Prize Pool</h3>
+                </div>
+                <p className="text-muted-foreground mb-4">
+                  As the lobby creator, you can resolve the prize pool and distribute it to the winner.
+                </p>
+                <Button 
+                  onClick={resolvePrizeAsCreator} 
+                  disabled={resolvingPrize}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  {resolvingPrize ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Resolving Prize...
+                    </>
+                  ) : (
+                    <>
+                      <Trophy className="mr-2 h-4 w-4" />
+                      Resolve Prize (Creator)
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Quiz Game */}
-        {gameStarted && !isExpired ? (
+        {gameStarted && !isExpired && !gameFinished ? (
           <QuizGame
             lobbyId={lobbyId}
             players={players}
             category={lobby.category}
-            startTimestampSec={(createdAtSec || 0) + 10}
+            startTimestampSec={0} // Not used - simple timer handles everything
             questionDurationSec={10}
             seed={`${CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA}-${numericLobbyId}-${createdAtSec || 0}`}
             currentPlayerAddress={account || players.find(p => p) || ''}
             onGameEnd={(results) => {
               setGameResults(results)
               setGameFinished(true)
+              setGameStarted(false)
+              try { sessionStorage.setItem(`quizcraft:finished:${lobbyId}`, 'true') } catch {}
               // Determine winner from results
               const gameWinner = results.reduce((prev, current) => 
                 prev.score > current.score ? prev : current
@@ -820,58 +945,53 @@ export default function LobbyPage() {
         ) : (
           <Card className="mb-8">
             <CardContent className="p-8 text-center">
-              <div className="flex items-center justify-center gap-3 mb-4">
-                <Users className="h-8 w-8 text-blue-500" />
-                <span className="text-xl font-semibold">
-                  {players.length} / {lobby.maxPlayers} Players Joined
-                </span>
-              </div>
-              {expiresInSec !== null && (
-                <div className="text-sm text-muted-foreground mb-2">
-                  {isExpired ? (
-                    <span className="text-red-600 font-semibold">Lobby expired</span>
-                  ) : (
-                    <>Expires in {Math.floor((expiresInSec || 0) / 60)}m {(expiresInSec || 0) % 60}s</>
-                  )}
-                </div>
-              )}
-              {players.length >= lobby.maxPlayers ? (
-                <div className="text-green-600 font-semibold">
-                  <CheckCircle className="h-6 w-6 inline mr-2" />
-                  All players have joined! Ready to start the game.
+              {gameStartCountdown ? (
+                // Show countdown when game is about to start
+                <div className="space-y-6">
+                  <div className="text-6xl font-bold text-green-600 mb-4">
+                    {gameStartCountdown}
+                  </div>
+                  <h2 className="text-2xl font-bold text-green-600 mb-2">Game Starting Soon!</h2>
+                  <p className="text-lg text-muted-foreground">
+                    All players have joined! Get ready for the quiz battle!
+                  </p>
+                  <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                    <Users className="h-4 w-4" />
+                    <span>{players.length} / {lobby.maxPlayers} Players Ready</span>
+                  </div>
                 </div>
               ) : (
-                <p className="text-muted-foreground">
-                  Waiting for {lobby.maxPlayers - players.length} more players to join...
-                </p>
-              )}
-              {players.length >= lobby.maxPlayers && !gameStarted && !gameFinished && (
-                <div className="mt-4">
-                  <Button
-                    onClick={startGame}
-                    disabled={startingGame}
-                    size="lg"
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    {startingGame ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Starting Game...
-                      </>
-                    ) : (
-                      <>
-                        <Swords className="mr-2 h-4 w-4" />
-                        Start Game
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )}
-              {isExpired && isUserInLobby && (
-                <div className="mt-4 flex gap-3 justify-center">
-                  <Button onClick={claimRefund} className="bg-red-600 hover:bg-red-700 text-white">Claim Refund</Button>
-                  {pendingReturns && Number(pendingReturns) > 0 && (
-                    <Button onClick={withdrawRefund} variant="outline">Withdraw ({Number(pendingReturns).toFixed(4)} CFX)</Button>
+                // Show waiting state when not all players joined
+                <div className="space-y-4">
+                  <div className="flex items-center justify-center gap-3 mb-4">
+                    <Users className="h-8 w-8 text-blue-500" />
+                    <span className="text-xl font-semibold">
+                      {players.length} / {lobby.maxPlayers} Players Joined
+                    </span>
+                  </div>
+                  {players.length >= lobby.maxPlayers ? (
+                    <div className="text-green-600 font-semibold">
+                      <CheckCircle className="h-6 w-6 inline mr-2" />
+                      All players have joined! Game will start automatically in a few seconds.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <p className="text-muted-foreground">
+                        Waiting for {lobby.maxPlayers - players.length} more players to join...
+                      </p>
+                      {expiresInSec !== null && !isExpired && (
+                        <p className="text-sm text-muted-foreground">
+                          Expires in {Math.floor((expiresInSec || 0) / 60)}m {(expiresInSec || 0) % 60}s
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  {isExpired && isUserInLobby && (
+                    <div className="mt-4">
+                      <Button onClick={claimRefund} className="bg-red-600 hover:bg-red-700 text-white">
+                        Claim Refund
+                      </Button>
+                    </div>
                   )}
                 </div>
               )}
