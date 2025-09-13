@@ -82,9 +82,30 @@ export async function POST(req: NextRequest) {
       time_bonus: Number(r.time_bonus || 0),
     }))
 
+    console.log('Upserting scores for lobby', lobbyId, 'game', gameId, 'rows:', rows)
+
+    // Check for existing scores to prevent unnecessary duplicates
+    for (const row of rows) {
+      const { data: existing } = await db
+        .from('game_results')
+        .select('*')
+        .eq('game_id', gameId)
+        .eq('player_address', row.player_address)
+        .single()
+      
+      if (existing) {
+        console.log(`Player ${row.player_address} already has score ${existing.score} for game ${gameId}, updating to ${row.score}`)
+      } else {
+        console.log(`New score for player ${row.player_address} in game ${gameId}: ${row.score}`)
+      }
+    }
+
     const { error: upsertErr } = await db
       .from('game_results')
-      .upsert(rows, { onConflict: 'game_id,player_address' })
+      .upsert(rows, { 
+        onConflict: 'game_id,player_address',
+        ignoreDuplicates: false // Update existing records instead of ignoring
+      })
 
     if (upsertErr) {
       console.error('upsert results error', upsertErr)
