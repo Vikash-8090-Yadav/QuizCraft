@@ -8,11 +8,18 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const lobbyId = Number(searchParams.get('lobbyId'))
-    if (!lobbyId) return NextResponse.json({ error: 'Missing lobbyId' }, { status: 400 })
+    
+    console.log('API Request - lobbyId:', lobbyId, 'type:', typeof lobbyId)
+    
+    if (!lobbyId || isNaN(lobbyId)) {
+      console.error('Invalid lobbyId:', lobbyId)
+      return NextResponse.json({ error: 'Missing or invalid lobbyId' }, { status: 400 })
+    }
 
     // Get players from smart contract
     let playersList: string[] = []
     try {
+      console.log('Attempting to fetch players from contract for lobbyId:', lobbyId)
       const rpcProvider = new ethers.JsonRpcProvider(CONFLUX_TESTNET.rpcUrl)
       const contract = new ethers.Contract(
         CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
@@ -23,16 +30,24 @@ export async function GET(req: NextRequest) {
       console.log('Players from contract:', playersList)
     } catch (contractError) {
       console.error('Error fetching players from contract:', contractError)
+      console.log('Contract call failed, will try to get players from game results instead')
       // If contract fails, we'll get players from game results instead
     }
 
     // Get all games for this lobby first
+    console.log('Fetching games from Supabase for lobbyId:', lobbyId)
     const { data: games, error: gamesErr } = await supabase
       .from('games')
       .select('id')
       .eq('lobby_id', lobbyId)
 
     let gameResults: any[] = []
+    
+    if (gamesErr) {
+      console.error('Error fetching games from Supabase:', gamesErr)
+    } else {
+      console.log('Games found:', games)
+    }
     
     if (!gamesErr && games && games.length > 0) {
       // Get all game results for all games in this lobby
@@ -88,15 +103,37 @@ export async function GET(req: NextRequest) {
 
     console.log('Combined players with scores:', allPlayersWithScores)
 
+    // Determine winner from highest score
+    let winner = null
+    if (allPlayersWithScores.length > 0) {
+      const playedPlayers = allPlayersWithScores.filter(p => p.has_played)
+      if (playedPlayers.length > 0) {
+        const winnerPlayer = playedPlayers.reduce((prev, current) => 
+          prev.score > current.score ? prev : current
+        )
+        winner = winnerPlayer.player_address
+        console.log("Winner determined:", winner, "with score:", winnerPlayer.score)
+      }
+    }
+
+    console.log('Returning API response:', {
+      playersCount: allPlayersWithScores.length,
+      winner,
+      totalPlayers: playersList.length,
+      playersWithScores: gameResults.length
+    })
+
     return NextResponse.json({ 
       players: allPlayersWithScores,
+      winner: winner,
       totalPlayers: playersList.length,
       playersWithScores: gameResults.length,
       debug: {
         lobbyId,
         playersFromContract: playersList,
         allGameResults: gameResults,
-        finalCombined: allPlayersWithScores
+        finalCombined: allPlayersWithScores,
+        winner: winner
       }
     })
   } catch (e: any) {
