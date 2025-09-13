@@ -46,6 +46,8 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [isAnswered, setIsAnswered] = useState(false);
+  const [timerActive, setTimerActive] = useState(true);
   const [timeLeft, setTimeLeft] = useState(questionDurationSec);
   const [playerScores, setPlayerScores] = useState<Record<string, number>>({});
   const [showExplanation, setShowExplanation] = useState(false);
@@ -54,6 +56,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
   const [quizStartedAt, setQuizStartedAt] = useState<number | null>(null);
   const [quizEndedAt, setQuizEndedAt] = useState<number | null>(null);
   const [gameProtectionActive, setGameProtectionActive] = useState(false);
+  const [scoresSubmitted, setScoresSubmitted] = useState(false);
 
   // Hydrate persisted scores
   useEffect(() => {
@@ -89,36 +92,33 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
 
   // Initialize game phase - start playing when questions are loaded
   useEffect(() => {
-    console.log("Questions state changed:", {
-      questionsLength: questions.length,
-      questions: questions,
-      firstQuestion: questions[0]
-    });
 
       if (questions.length === 0) return
 
-    // Only start playing if we have valid questions
-    if (questions.length > 0 && questions[0] && questions[0].question) {
-      console.log("Starting game with questions:", questions);
+    // Only start playing if we have valid questions and we're not already playing
+    if (questions.length > 0 && questions[0] && questions[0].question && gameState !== 'playing') {
       setGameState('playing')
       setCurrentQuestion(0) // Start from question 1
       setTimeLeft(questionDurationSec)
-      console.log("🎮 GAME STARTED! Question 1 of", questions.length, "with", questionDurationSec, "seconds per question");
+    } else if (questions.length > 0 && questions[0] && questions[0].question && gameState === 'playing') {
     } else {
-      console.warn("Questions loaded but first question is invalid:", questions[0]);
-      console.warn("All questions:", questions.map((q, i) => ({ index: i, valid: !!(q && q.question), question: q?.question })));
       
       // If questions are invalid, try to regenerate them
       if (questions.length > 0 && questions.every(q => !q || !q.question)) {
-        console.log("All questions are invalid, regenerating...");
         generateQuiz();
       }
     }
-  }, [questions.length, questionDurationSec, questions])
+  }, [questions.length, questionDurationSec, questions, gameState])
 
   const endGame = async () => {
+    if (scoresSubmitted) {
+      console.log('Scores already submitted, skipping duplicate submission');
+      return;
+    }
+    
     setGameState('finished');
     setQuizEndedAt(Date.now());
+    setScoresSubmitted(true);
     
     console.log('=== ENDGAME DEBUG ===');
     console.log('currentPlayerAddress:', currentPlayerAddress);
@@ -137,9 +137,10 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
       console.error('Error getting backup scores:', e)
     }
     
-    // Use playerScores if available, otherwise use backup scores
-    const scoresToUse = Object.keys(playerScores).length > 0 ? playerScores : backupScores;
-    console.log('Using scores:', scoresToUse);
+    // Always prefer sessionStorage scores as they're more up-to-date
+    // This fixes the timing issue where state hasn't updated yet
+    const scoresToUse = Object.keys(backupScores).length > 0 ? backupScores : playerScores;
+    console.log('Using scores (preferring sessionStorage):', scoresToUse);
     
     // If we found backup scores and playerScores is empty, restore them
     if (Object.keys(playerScores).length === 0 && Object.keys(backupScores).length > 0) {
@@ -353,26 +354,42 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
     }
   };
 
-  // Simple independent timer - no complex calculations
+  // Combined effect to handle question changes and timer
   useEffect(() => {
     if (gameState !== 'playing' || questions.length === 0) return
+    if (currentQuestion >= questions.length) {
+      console.log("Question index out of bounds, ending game");
+      endGame();
+      return;
+    }
 
-    console.log("Starting simple timer for question:", currentQuestion + 1, "of", questions.length);
+    console.log(`Question ${currentQuestion + 1}: Resetting selection and timer`);
+    
+    // Reset selection and answered state for new question
+    setSelectedAnswer(prev => {
+      console.log(`Resetting selection from ${prev} to null for question ${currentQuestion + 1}`);
+      return null;
+    });
+    setIsAnswered(false);
+    
+    // Reset timer and explanation for new question
+    setTimeLeft(questionDurationSec);
+    setShowExplanation(false);
+    setTimerActive(true); // Start timer for new question
 
-    // Simple countdown timer
+    // Simple countdown timer - only runs when timer is active
     const tick = () => {
+      if (!timerActive) return; // Don't tick if timer is stopped
+      
       setTimeLeft(prev => {
         if (prev <= 1) {
           // Time's up for current question
-          console.log("Time's up for question:", currentQuestion + 1);
           
           // Move to next question or end game
           if (currentQuestion < questions.length - 1) {
-            console.log("Moving to next question:", currentQuestion + 2);
             setCurrentQuestion(prev => prev + 1);
             return questionDurationSec; // Reset timer for next question
           } else {
-            console.log("Quiz finished, ending game");
             endGame();
             return 0;
           }
@@ -383,7 +400,7 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
 
     const i = setInterval(tick, 1000) // Simple 1-second countdown
     return () => clearInterval(i)
-  }, [currentQuestion, gameState, questions.length, questionDurationSec, endGame])
+  }, [currentQuestion, gameState, questions.length, questionDurationSec, endGame, timerActive])
 
   // Emit live score reset at game start
   useEffect(() => {
@@ -579,9 +596,29 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
   };
 
   const handleAnswerSelect = (answerIndex: number) => {
-    if (selectedAnswer !== null) return; // Already answered
+    console.log(`handleAnswerSelect called: answerIndex=${answerIndex}, selectedAnswer=${selectedAnswer}, gameState=${gameState}, currentQuestion=${currentQuestion}`);
     
-    setSelectedAnswer(answerIndex);
+    // Prevent multiple selections and ensure we're in playing state
+    if (selectedAnswer !== null || isAnswered || gameState !== 'playing') {
+      console.log(`Answer selection blocked: selectedAnswer=${selectedAnswer}, isAnswered=${isAnswered}, gameState=${gameState}`);
+      return;
+    }
+    
+    console.log(`Answer ${answerIndex} selected for question ${currentQuestion + 1}`);
+    
+    // Use functional update to ensure we get the latest state
+    setSelectedAnswer(prev => {
+      if (prev !== null) {
+        console.log(`Selection already exists: ${prev}, ignoring new selection: ${answerIndex}`);
+        return prev; // Don't change if already selected
+      }
+      console.log(`Setting selection to: ${answerIndex}`);
+      return answerIndex;
+    });
+    
+    // Mark as answered to lock the selection and stop timer
+    setIsAnswered(true);
+    setTimerActive(false); // Stop timer when answer is selected
     setShowExplanation(true);
     
     // Calculate score
@@ -606,20 +643,17 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
       // Use existing key if found, otherwise use currentPlayerAddress
       const playerKey = existingKey || currentPlayerAddress;
       const current = next[playerKey] || 0
-      const newScore = Math.max(0, current + points) // Ensure score never goes below 0
+      const newScore = Math.max(0, current + points) // Minimum score is 0, don't go negative
       next[playerKey] = newScore
       
-      console.log(`Score update for ${playerKey}: +${points} = ${newScore} (was ${current})`)
-      console.log('Updated playerScores:', next)
+      console.log(`Score update: ${playerKey} - ${current} + ${points} = ${newScore} (correct: ${isCorrect}, timeBonus: ${timeBonus})`)
+      
       if (onScoreUpdate) onScoreUpdate(next)
       return next
     });
 
-    // Clear selection after a brief explanation window; advance handled by time-based tick
-    setTimeout(() => {
-      setSelectedAnswer(null);
-      setShowExplanation(false);
-    }, 2000);
+    // DO NOT clear selection - keep it locked until next question
+    // The selection will be reset when moving to the next question
   };
 
   const handleTimeUp = () => {
@@ -639,6 +673,10 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
               <p className="text-muted-foreground">
                 Generating questions for your quiz battle. Please wait...
               </p>
+              <div className="text-xs text-muted-foreground mt-4 p-2 bg-gray-100 rounded">
+                Debug: gameState={gameState}, questions.length={questions.length}, 
+                firstQuestion={questions[0] ? 'exists' : 'missing'}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -653,19 +691,9 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
     const safeCurrentQuestion = Math.max(0, Math.min(currentQuestion, questions.length - 1));
     const question = questions[safeCurrentQuestion];
     
-    console.log("Rendering question:", {
-      gameState,
-      questionsLength: questions.length,
-      currentQuestion,
-      safeCurrentQuestion,
-      question: question,
-      questionExists: !!question,
-      allQuestions: questions.map((q, i) => ({ index: i, exists: !!q, question: q?.question }))
-    });
     
     // Add safety check for question object
     if (!question || !question.question) {
-      console.warn("Question is undefined or invalid, showing loading state");
     return (
         <div className="w-full max-w-4xl mx-auto space-y-6">
           <Card>
@@ -725,7 +753,12 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
             <CardTitle className="text-xl">{question.question || 'Loading question...'}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {(question.options || []).map((option, index) => (
+            {(() => {
+              console.log(`Rendering question ${currentQuestion + 1} buttons: selectedAnswer=${selectedAnswer}, isAnswered=${isAnswered}, gameState=${gameState}`);
+              return (question.options || []).map((option, index) => {
+                const isDisabled = selectedAnswer !== null || isAnswered || gameState !== 'playing';
+                console.log(`Button ${index}: disabled=${isDisabled} (selectedAnswer=${selectedAnswer}, isAnswered=${isAnswered})`);
+                return (
               <Button
                 key={index}
                 variant={selectedAnswer === index ? "default" : "outline"}
@@ -737,12 +770,14 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
                     : ""
                 }`}
                 onClick={() => handleAnswerSelect(index)}
-                disabled={selectedAnswer !== null}
+                    disabled={isDisabled}
               >
                 <span className="font-medium mr-3">{String.fromCharCode(65 + index)}.</span>
                 {option}
               </Button>
-            ))}
+                );
+              });
+            })()}
           </CardContent>
         </Card>
 
@@ -754,6 +789,38 @@ export default function QuizGame({ lobbyId, players, category, onGameEnd, onScor
               <p className="text-blue-800">{question.explanation || 'No explanation available.'}</p>
             </CardContent>
           </Card>
+        )}
+
+        {/* Next Question Button */}
+        {isAnswered && currentQuestion < questions.length - 1 && (
+          <div className="mt-4 text-center">
+            <Button 
+              onClick={() => {
+                console.log(`Moving to next question: ${currentQuestion + 1} -> ${currentQuestion + 2}`);
+                setCurrentQuestion(prev => prev + 1);
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 text-lg"
+              size="lg"
+            >
+              Next Question ({currentQuestion + 1}/{questions.length})
+            </Button>
+          </div>
+        )}
+
+        {/* Finish Quiz Button */}
+        {isAnswered && currentQuestion === questions.length - 1 && (
+          <div className="mt-4 text-center">
+            <Button 
+              onClick={() => {
+                console.log(`Finishing quiz on question ${currentQuestion + 1}`);
+                endGame();
+              }}
+              className="bg-red-600 hover:bg-red-700 text-white px-8 py-3 text-lg"
+              size="lg"
+            >
+              Finish Quiz
+            </Button>
+          </div>
         )}
 
       </div>
