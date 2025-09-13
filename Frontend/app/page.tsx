@@ -13,10 +13,6 @@ export default function HomePage() {
       <section className="relative text-center py-20 overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-accent/20 via-transparent to-secondary/20 animate-gradient" />
         <div className="relative max-w-6xl mx-auto">
-          <Badge variant="secondary" className="mb-6 text-sm font-medium px-4 py-2 animate-pulse-glow">
-            🚀 Hackathon Innovation Award Winner
-          </Badge>
-
           <h1 className="font-montserrat font-black text-5xl md:text-7xl lg:text-8xl mb-8 leading-tight">
             <span className="bg-gradient-to-r from-primary via-accent to-secondary bg-clip-text text-transparent animate-gradient">
               QuizCraft AI
