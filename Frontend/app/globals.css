@@ -3,6 +3,64 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Custom Toast Animations */
+@keyframes slide-in-from-right {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-to-right {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Toast specific animations */
+[data-state="open"][data-swipe="move"] {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+[data-state="closed"][data-swipe="end"] {
+  animation: slide-out-to-right 0.2s ease-in;
+}
+
+[data-state="open"] {
+  animation: slide-in-from-right 0.3s ease-out;
+}
+
+[data-state="closed"] {
+  animation: slide-out-to-right 0.2s ease-in;
+}
+
 :root {
   /* Updated color palette for hackathon design - modern gray/indigo theme */
   --background: oklch(1 0 0); /* #ffffff */
