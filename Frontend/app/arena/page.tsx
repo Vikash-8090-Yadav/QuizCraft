@@ -253,6 +253,18 @@ export default function ArenaPage() {
       for (let i = 0; i < lobbyCount; i++) {
         try {
           const lobby = await readContract.lobbies(i)
+          console.log(`Lobby ${i} raw data:`, lobby)
+          
+          // Fix field mapping - ABI is missing players array field
+          // Smart contract struct: [id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, distribution, players, winner, creator]
+          // ABI has: [id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, distribution, winner, creator]
+          // So winner is at index 10, creator is at index 11
+          const creatorAddress = lobby[11] // creator is at index 11 (not 12 due to missing players array)
+          const winnerAddress = lobby[10] // winner is at index 10 (not 11 due to missing players array)
+          
+          console.log(`Lobby ${i} creator (index 11):`, creatorAddress)
+          console.log(`Lobby ${i} winner (index 10):`, winnerAddress)
+          
           // lobby: { id, name, category, entryFee, playerCount, maxPlayers, prizePool, createdAt, status, distribution, players, winner, creator }
           const entryFeeCFX = ethers.formatEther(lobby.entryFee)
           const status = Number(lobby.status)
@@ -299,7 +311,7 @@ export default function ArenaPage() {
             currentPlayers: playerCount,
             maxPlayers: maxPlayers,
             isActive: isActive,
-            creator: lobby.creator,
+            creator: creatorAddress, // Use correct creator address from index 11
             status: statusText,
             isUserInLobby: isUserInLobby,
           })
@@ -392,6 +404,9 @@ export default function ArenaPage() {
                 if (account) {
                   try { isUserInLobby = await readContract.isPlayerInLobby(i, account) } catch {}
                 }
+                // Fix field mapping - ABI is missing players array field
+                const creatorAddress = lobby[11] // creator is at index 11 (not 12 due to missing players array)
+                
                 fetched.push({
                   id: String(lobby.id),
                   name: lobby.name,
@@ -401,7 +416,7 @@ export default function ArenaPage() {
                   currentPlayers: playerCount,
                   maxPlayers,
                   isActive,
-                  creator: lobby.creator,
+                  creator: creatorAddress, // Use correct creator address from index 11
                   status: statusText,
                   isUserInLobby,
                 })
@@ -495,9 +510,10 @@ export default function ArenaPage() {
       return
     }
 
-    // Check if lobby is not active (only for new players)
+    // Check if lobby is not active - redirect to view instead of blocking
     if (!lobby.isActive) {
-      toast({ title: "Lobby not joinable", description: "This lobby is currently not accepting new players.", variant: "destructive" })
+      // Redirect to view the lobby (for expired/completed lobbies - open to anyone)
+      window.location.href = `/arena/${lobby.id}`
       return
     }
 
@@ -541,8 +557,22 @@ export default function ArenaPage() {
         const receipt = await tx.wait()
         console.log("Transaction confirmed:", receipt)
 
-        // Success toast and redirect to the lobby for immediate access
-        toast({ title: "Joined lobby", description: `Entered ${lobby.name} (${lobby.entryFee} CFX)`, duration: 2000 })
+        // Enhanced success toast with transaction link
+        toast({ 
+          title: "🎯 Joined Lobby Successfully!", 
+          description: `Entered "${lobby.name}" (${lobby.entryFee} CFX entry fee)`,
+          duration: 4000,
+          action: (
+            <a 
+              href={`https://evmtestnet.confluxscan.org/tx/${tx.hash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:text-blue-800 underline text-sm"
+            >
+              View Transaction
+            </a>
+          )
+        })
         // Persist joined flag for smoother navigation to lobby page
         try {
           if (account) sessionStorage.setItem(`quizcraft:joined:${lobby.id}:${account.toLowerCase()}`, 'true')
@@ -605,9 +635,26 @@ export default function ArenaPage() {
       
       const tx = await contract.createLobby(lobbyForm.name.trim(), lobbyForm.category.trim(), entryFeeWei, maxPlayers)
       console.log("Create lobby transaction sent:", tx.hash)
-      await tx.wait()
+      const receipt = await tx.wait()
       console.log("Lobby created successfully")
-      toast({ title: "Lobby created", description: `"${lobbyForm.name}" is now live.`, duration: 4000 })
+      
+      // Enhanced success toast with transaction link
+      toast({ 
+        title: "🎉 Lobby Created Successfully!", 
+        description: `"${lobbyForm.name}" is now live and ready for players.`,
+        duration: 5000,
+        action: (
+          <a 
+            href={`https://evmtestnet.confluxscan.org/tx/${tx.hash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 underline text-sm"
+          >
+            View on Explorer
+          </a>
+        )
+      })
+      
       // Show success modal
       setCreatedLobbyName(lobbyForm.name)
       setIsSuccessModalOpen(true)
@@ -616,8 +663,10 @@ export default function ArenaPage() {
       setLobbyForm({ name: "", category: "", entryFee: "", maxPlayers: "2" })
       setIsCreateModalOpen(false)
       
-      // Refresh lobbies to show the new lobby
-      fetchLobbies()
+      // Auto-refresh lobbies to show the new lobby with loading state
+      setTimeout(() => {
+        fetchLobbies()
+      }, 2000) // Wait 2 seconds for blockchain to update
     } catch (error: any) {
       console.error("Error creating lobby:", error)
       toast({ title: "Create failed", description: error.message || "Please try again.", variant: "destructive" })
@@ -777,14 +826,6 @@ export default function ArenaPage() {
             </div>
           )}
           
-          {/* Contract Info Debug */}
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-xs text-muted-foreground border">
-            <div><strong>Contract Address:</strong> {CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA}</div>
-            <div><strong>Network:</strong> {isOnConflux ? "Conflux eSpace Testnet" : "Wrong Network"}</div>
-            <div><strong>Account:</strong> {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : "Not Connected"}</div>
-            <div><strong>Is Owner:</strong> {account && account.toLowerCase() === OWNER_ADDRESS.toLowerCase() ? "Yes" : "No"}</div>
-
-          </div>
           
           {/* Admin Panel Button for Owner */}
           {isOwner && (
@@ -842,6 +883,7 @@ export default function ArenaPage() {
                         <SelectContent>
                           <SelectItem value="Technology">Technology</SelectItem>
                           <SelectItem value="Cryptocurrency">Cryptocurrency</SelectItem>
+                          <SelectItem value="Conflux Network">Conflux Network</SelectItem>
                           <SelectItem value="Science">Science</SelectItem>
                           <SelectItem value="History">History</SelectItem>
                           <SelectItem value="Sports">Sports</SelectItem>
@@ -1125,8 +1167,8 @@ export default function ArenaPage() {
                               </TooltipProvider>
                             )}
                             {!lobby.isActive && !lobby.isUserInLobby && (
-                              <Badge variant="secondary" aria-label={lobby.currentPlayers >= lobby.maxPlayers ? 'Full' : 'Not Joinable'}>
-                                {lobby.currentPlayers >= lobby.maxPlayers ? "Full" : "Not Joinable"}
+                              <Badge variant="secondary" aria-label={lobby.currentPlayers >= lobby.maxPlayers ? 'Full' : 'Viewable by All'}>
+                                {lobby.currentPlayers >= lobby.maxPlayers ? "Full" : "Viewable by All"}
                               </Badge>
                             )}
                           </div>
@@ -1157,13 +1199,6 @@ export default function ArenaPage() {
                     </div>
 
                     <div className="flex flex-col gap-3">
-                      {/* Score Status */}
-                      {hasPendingScores(lobby.id) && (
-                        <div className="flex items-center gap-2 text-amber-600 bg-amber-50 px-3 py-2 rounded-lg border border-amber-200">
-                          <Clock className="h-4 w-4" />
-                          <span className="text-sm font-medium">Scores in progress...</span>
-                        </div>
-                      )}
                       
                       {/* Action Buttons */}
                       <div className="flex gap-2">
@@ -1180,7 +1215,7 @@ export default function ArenaPage() {
                         ) : (
                           <Button
                             onClick={() => joinLobby(lobby)}
-                            disabled={(!lobby.isActive && !lobby.isUserInLobby) || joiningLobby === lobby.id}
+                            disabled={joiningLobby === lobby.id}
                             size="lg"
                             className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
                             aria-label={`Join lobby ${lobby.name} for ${lobby.entryFee} CFX`}
@@ -1193,7 +1228,7 @@ export default function ArenaPage() {
                             ) : (
                               <>
                                 <Swords className="mr-3 h-5 w-5" />
-                                Enter Battle ({lobby.entryFee} CFX)
+                                {lobby.isActive ? `Enter Battle (${lobby.entryFee} CFX)` : 'View Results (Open to All)'}
                               </>
                             )}
                           </Button>
