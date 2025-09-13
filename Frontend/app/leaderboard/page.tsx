@@ -224,29 +224,63 @@ export default function LeaderboardPage() {
 
   const getRankIcon = (index: number) => {
     if (index === 0) {
-      return <Crown className="h-6 w-6 text-yellow-500" />
+      return (
+        <div className="w-16 h-16 bg-gradient-to-br from-yellow-400 via-yellow-500 to-orange-500 rounded-full flex items-center justify-center shadow-2xl ring-4 ring-yellow-400/30 animate-pulse-glow">
+          <Crown className="h-8 w-8 text-white drop-shadow-lg" />
+        </div>
+      )
     } else if (index === 1) {
-      return <Medal className="h-6 w-6 text-gray-400" />
+      return (
+        <div className="w-16 h-16 bg-gradient-to-br from-gray-300 via-gray-400 to-gray-500 rounded-full flex items-center justify-center shadow-2xl ring-4 ring-gray-400/30">
+          <Medal className="h-8 w-8 text-white drop-shadow-lg" />
+        </div>
+      )
     } else if (index === 2) {
-      return <Medal className="h-6 w-6 text-amber-600" />
+      return (
+        <div className="w-16 h-16 bg-gradient-to-br from-amber-400 via-amber-500 to-orange-600 rounded-full flex items-center justify-center shadow-2xl ring-4 ring-amber-400/30">
+          <Medal className="h-8 w-8 text-white drop-shadow-lg" />
+        </div>
+      )
     } else {
-      return <span className="w-6 h-6 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center">
-        {index + 1}
-      </span>
+      return (
+        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600 rounded-full flex items-center justify-center shadow-lg ring-2 ring-blue-400/20">
+          <span className="text-white text-lg font-black drop-shadow-sm">#{index + 1}</span>
+        </div>
+      )
     }
   }
 
   const getRankBadge = (index: number) => {
     if (index === 0) {
-      return <Badge className="bg-gradient-to-r from-yellow-400 to-yellow-600 text-white">🥇 Champion</Badge>
+      return (
+        <Badge className="bg-gradient-to-r from-yellow-400 via-yellow-500 to-orange-500 text-white font-bold px-4 py-2 text-sm shadow-lg ring-2 ring-yellow-400/30">
+          👑 Quiz Champion
+        </Badge>
+      )
     } else if (index === 1) {
-      return <Badge className="bg-gradient-to-r from-gray-400 to-gray-600 text-white">🥈 Runner-up</Badge>
+      return (
+        <Badge className="bg-gradient-to-r from-gray-400 via-gray-500 to-gray-600 text-white font-bold px-4 py-2 text-sm shadow-lg ring-2 ring-gray-400/30">
+          🥈 Elite Player
+        </Badge>
+      )
     } else if (index === 2) {
-      return <Badge className="bg-gradient-to-r from-amber-500 to-amber-700 text-white">🥉 Third Place</Badge>
+      return (
+        <Badge className="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white font-bold px-4 py-2 text-sm shadow-lg ring-2 ring-amber-400/30">
+          🥉 Expert Player
+        </Badge>
+      )
     } else if (index < 10) {
-      return <Badge variant="secondary" className="bg-blue-100 text-blue-700">Top 10</Badge>
+      return (
+        <Badge className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-semibold px-3 py-1 text-xs shadow-md">
+          🏆 Top 10
+        </Badge>
+      )
     } else {
-      return <Badge variant="outline">Player</Badge>
+      return (
+        <Badge variant="outline" className="border-gray-300 text-gray-600 font-medium px-3 py-1 text-xs">
+          Player
+        </Badge>
+      )
     }
   }
 
@@ -392,64 +426,108 @@ export default function LeaderboardPage() {
               </div>
             </div>
 
-            <Card className="border-0 shadow-xl bg-gradient-to-br from-white via-blue-50/30 to-purple-50/30">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-2xl">
-                  <Crown className="h-6 w-6 text-yellow-500" />
-                  Global Rankings
+            <Card className="relative overflow-hidden border-0 shadow-2xl bg-gradient-to-br from-white via-blue-50/40 to-purple-50/40 backdrop-blur-sm">
+              {/* Animated background elements */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-yellow-400/20 to-orange-500/20 rounded-full blur-3xl animate-pulse" />
+              <div className="absolute bottom-0 left-0 w-48 h-48 bg-gradient-to-tr from-purple-400/20 to-pink-500/20 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '1s' }} />
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-32 h-32 bg-gradient-to-r from-blue-400/10 to-cyan-400/10 rounded-full blur-xl animate-pulse" style={{ animationDelay: '2s' }} />
+              
+              <CardHeader className="relative">
+                <CardTitle className="flex items-center gap-3 text-3xl font-black">
+                  <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 via-yellow-500 to-orange-500 rounded-xl flex items-center justify-center shadow-lg animate-pulse-glow">
+                    <Crown className="h-7 w-7 text-white drop-shadow-sm" />
+                  </div>
+                  <div>
+                    <span className="bg-gradient-to-r from-yellow-600 via-orange-600 to-red-600 bg-clip-text text-transparent">
+                      Global Rankings
+                    </span>
+                    <p className="text-sm text-muted-foreground font-medium mt-1">
+                      🏆 Compete with the world's best quiz masters
+                    </p>
+                  </div>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="relative">
                 {loading ? (
                   <div className="space-y-4">
                     {[...Array(5)].map((_, i) => (
                       <div key={i} className="animate-pulse">
-                        <div className="flex items-center justify-between p-4 bg-gray-100 rounded-xl">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-gray-200 rounded-full" />
-                            <div className="space-y-2">
-                              <div className="h-4 w-32 bg-gray-200 rounded" />
-                              <div className="h-3 w-24 bg-gray-200 rounded" />
+                        <div className="flex items-center justify-between p-8 bg-gradient-to-r from-gray-100 to-gray-200 rounded-3xl">
+                          <div className="flex items-center gap-8">
+                            <div className="flex items-center gap-4">
+                              <div className="w-16 h-16 bg-gray-300 rounded-full" />
+                              <div className="text-center">
+                                <div className="h-3 w-12 bg-gray-300 rounded mb-2" />
+                                <div className="h-6 w-8 bg-gray-300 rounded" />
+                              </div>
+                            </div>
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-4">
+                                <div className="h-6 w-32 bg-gray-300 rounded" />
+                                <div className="h-6 w-20 bg-gray-300 rounded" />
+                              </div>
+                              <div className="grid grid-cols-4 gap-4">
+                                {[...Array(4)].map((_, j) => (
+                                  <div key={j} className="h-8 bg-gray-300 rounded-full" />
+                                ))}
+                              </div>
                             </div>
                           </div>
-                          <div className="h-6 w-16 bg-gray-200 rounded" />
+                          <div className="text-right">
+                            <div className="h-10 w-24 bg-gray-300 rounded mb-2" />
+                            <div className="space-y-2">
+                              <div className="h-6 w-20 bg-gray-300 rounded" />
+                              <div className="h-6 w-16 bg-gray-300 rounded" />
+                            </div>
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {filteredGlobalPlayers.map((player, index) => {
                       const isCurrentPlayer = player.player_address.toLowerCase() === account?.toLowerCase()
                       
                       return (
                         <div
                           key={`global-${player.player_address}-${index}`}
-                          className={`relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
-                            index === 0 ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300 shadow-lg shadow-yellow-500/20' :
-                            index === 1 ? 'bg-gradient-to-r from-gray-50 to-gray-100 border-gray-300 shadow-lg shadow-gray-500/20' :
-                            index === 2 ? 'bg-gradient-to-r from-amber-50 to-amber-100 border-amber-300 shadow-lg shadow-amber-500/20' :
-                            isCurrentPlayer ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-300 ring-2 ring-blue-400 ring-opacity-50' :
-                            'bg-gradient-to-r from-white to-gray-50 border-gray-200 hover:border-gray-300'
+                          className={`relative overflow-hidden rounded-3xl border-2 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl group ${
+                            index === 0 ? 'bg-gradient-to-br from-yellow-50 via-yellow-100/50 to-orange-50 border-yellow-300 shadow-2xl shadow-yellow-500/30 ring-4 ring-yellow-400/20' :
+                            index === 1 ? 'bg-gradient-to-br from-gray-50 via-gray-100/50 to-slate-50 border-gray-300 shadow-2xl shadow-gray-500/30 ring-4 ring-gray-400/20' :
+                            index === 2 ? 'bg-gradient-to-br from-amber-50 via-amber-100/50 to-orange-50 border-amber-300 shadow-2xl shadow-amber-500/30 ring-4 ring-amber-400/20' :
+                            isCurrentPlayer ? 'bg-gradient-to-br from-blue-50 via-indigo-50/50 to-purple-50 border-blue-400 ring-4 ring-blue-400/30 shadow-2xl shadow-blue-500/30' :
+                            'bg-gradient-to-br from-white via-gray-50/30 to-slate-50 border-gray-200 hover:border-gray-300 hover:shadow-xl'
                           }`}
+                          style={{ animationDelay: `${index * 0.1}s` }}
                         >
-                          <div className="flex items-center justify-between p-6">
-                            <div className="flex items-center gap-6">
-                              <div className="flex items-center gap-3">
+                          {/* Animated background effects for top 3 */}
+                          {index < 3 && (
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-pulse" />
+                          )}
+                          
+                          <div className="flex items-center justify-between p-8 relative">
+                            <div className="flex items-center gap-8">
+                              <div className="flex items-center gap-4">
                                 {getRankIcon(index)}
-                                <div className="text-right">
-                                  <div className="text-sm font-medium text-muted-foreground">Rank</div>
-                                  <div className="text-xl font-bold">#{index + 1}</div>
+                                <div className="text-center">
+                                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Rank</div>
+                                  <div className="text-2xl font-black bg-gradient-to-r from-gray-700 to-gray-900 bg-clip-text text-transparent">
+                                    #{index + 1}
+                                  </div>
                                 </div>
                               </div>
                               
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-3">
-                                  <p className="font-bold text-lg font-mono">
-                                    {isCurrentPlayer ? 'You' : `${player.player_address.slice(0, 6)}...${player.player_address.slice(-4)}`}
-                                  </p>
+                              <div className="space-y-3">
+                                <div className="flex items-center gap-4">
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-3 h-3 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full animate-pulse" />
+                                    <p className="font-black text-xl font-mono bg-gradient-to-r from-gray-800 to-gray-900 bg-clip-text text-transparent">
+                                      {isCurrentPlayer ? 'You' : `${player.player_address.slice(0, 6)}...${player.player_address.slice(-4)}`}
+                                    </p>
+                                  </div>
                                   {isCurrentPlayer && (
-                                    <Badge className="bg-blue-500 text-white">
+                                    <Badge className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white font-bold px-3 py-1 shadow-lg">
                                       <Star className="h-3 w-3 mr-1" />
                                       You
                                     </Badge>
@@ -457,64 +535,78 @@ export default function LeaderboardPage() {
                                   {getRankBadge(index)}
                                 </div>
                                 
-                                <div className="flex items-center gap-6 text-sm text-muted-foreground">
-                                  <span className="flex items-center gap-1">
-                                    <Target className="h-4 w-4" />
-                                    {player.games_played} games
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <Trophy className="h-4 w-4" />
-                                    {player.wins} wins ({player.win_rate}%)
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <Zap className="h-4 w-4" />
-                                    {player.accuracy}% accuracy
-                                  </span>
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="h-4 w-4" />
-                                    {new Date(player.last_played).toLocaleDateString()}
-                                  </span>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                  <div className="flex items-center gap-2 bg-orange-100 dark:bg-orange-900/30 px-3 py-2 rounded-full">
+                                    <Target className="h-4 w-4 text-orange-600" />
+                                    <span className="font-semibold text-orange-700 dark:text-orange-300">
+                                      {player.games_played} games
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-green-100 dark:bg-green-900/30 px-3 py-2 rounded-full">
+                                    <Trophy className="h-4 w-4 text-green-600" />
+                                    <span className="font-semibold text-green-700 dark:text-green-300">
+                                      {player.wins} wins ({player.win_rate}%)
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-purple-100 dark:bg-purple-900/30 px-3 py-2 rounded-full">
+                                    <Zap className="h-4 w-4 text-purple-600" />
+                                    <span className="font-semibold text-purple-700 dark:text-purple-300">
+                                      {player.accuracy}% accuracy
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 bg-blue-100 dark:bg-blue-900/30 px-3 py-2 rounded-full">
+                                    <Clock className="h-4 w-4 text-blue-600" />
+                                    <span className="font-semibold text-blue-700 dark:text-blue-300">
+                                      {new Date(player.last_played).toLocaleDateString()}
+                                    </span>
+                                  </div>
                                 </div>
                                 
                                 {player.achievements.length > 0 && (
-                                  <div className="flex items-center gap-2 mt-2">
-                                    <span className="text-xs text-muted-foreground">Achievements:</span>
-                                    {player.achievements.slice(0, 3).map((achievement, i) => (
-                                      <Badge key={i} variant="outline" className="text-xs">
-                                        {achievement}
-                                      </Badge>
-                                    ))}
-                                    {player.achievements.length > 3 && (
-                                      <Badge variant="outline" className="text-xs">
-                                        +{player.achievements.length - 3} more
-                                      </Badge>
-                                    )}
+                                  <div className="flex items-center gap-3 mt-3">
+                                    <span className="text-sm font-semibold text-muted-foreground">🏆 Achievements:</span>
+                                    <div className="flex gap-2 flex-wrap">
+                                      {player.achievements.slice(0, 3).map((achievement, i) => (
+                                        <Badge key={i} variant="outline" className="text-xs font-medium bg-gradient-to-r from-yellow-50 to-orange-50 border-yellow-300 text-yellow-700">
+                                          {achievement}
+                                        </Badge>
+                                      ))}
+                                      {player.achievements.length > 3 && (
+                                        <Badge variant="outline" className="text-xs font-medium bg-gradient-to-r from-gray-50 to-slate-50 border-gray-300 text-gray-600">
+                                          +{player.achievements.length - 3} more
+                                        </Badge>
+                                      )}
+                                    </div>
                                   </div>
                                 )}
                               </div>
                             </div>
                             
                             <div className="text-right">
-                              <div className="flex items-center gap-3">
-                                <div>
-                                  <div className="text-3xl font-bold text-gray-900">
+                              <div className="flex items-center gap-4">
+                                <div className="text-center">
+                                  <div className="text-4xl font-black bg-gradient-to-r from-gray-800 via-gray-900 to-black bg-clip-text text-transparent mb-1">
                                     {player.total_score.toLocaleString()}
                                   </div>
-                                  <div className="text-sm text-muted-foreground">total points</div>
+                                  <div className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Total Points</div>
                                 </div>
                                 {index === 0 && (
                                   <div className="animate-bounce">
-                                    <Crown className="h-8 w-8 text-yellow-500" />
+                                    <div className="w-12 h-12 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-2xl">
+                                      <Crown className="h-6 w-6 text-white" />
+                                    </div>
                                   </div>
                                 )}
                               </div>
                               
-                              <div className="mt-2 space-y-1">
-                                <div className="text-sm text-muted-foreground">
-                                  Best: <span className="font-semibold">{player.best_score.toLocaleString()}</span>
+                              <div className="mt-4 space-y-2">
+                                <div className="flex items-center justify-between bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 px-4 py-2 rounded-xl">
+                                  <span className="text-sm font-semibold text-green-700 dark:text-green-300">Best Score</span>
+                                  <span className="font-bold text-green-800 dark:text-green-200">{player.best_score.toLocaleString()}</span>
                                 </div>
-                                <div className="text-sm text-muted-foreground">
-                                  Avg: <span className="font-semibold">{player.average_score.toLocaleString()}</span>
+                                <div className="flex items-center justify-between bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 px-4 py-2 rounded-xl">
+                                  <span className="text-sm font-semibold text-blue-700 dark:text-blue-300">Average</span>
+                                  <span className="font-bold text-blue-800 dark:text-blue-200">{player.average_score.toLocaleString()}</span>
                                 </div>
                               </div>
                             </div>
