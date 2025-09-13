@@ -37,11 +37,14 @@ export default function QuizProgress({
   questionSource = null
 }: QuizProgressProps) {
   // Fix progress calculation - currentQuestion is 0-based, but we want 1-based for display
-  const displayQuestion = currentQuestion + 1
+  const displayQuestion = Math.min(currentQuestion + 1, totalQuestions)
   const progressPercentage = (displayQuestion / totalQuestions) * 100
-  const timePercentage = (timeRemaining / questionDuration) * 100
+  const timePercentage = Math.max(0, Math.min(100, (timeRemaining / questionDuration) * 100))
   const isTimeRunningLow = timeRemaining <= 5
-  const gradientBar = isTimeRunningLow
+  const isTimeCritical = timeRemaining <= 2
+  const gradientBar = isTimeCritical
+    ? 'from-red-600 via-red-500 to-orange-500 animate-pulse'
+    : isTimeRunningLow
     ? 'from-rose-500 via-red-500 to-orange-500'
     : 'from-emerald-500 via-green-500 to-teal-500'
   const subtleBg = 'bg-gradient-to-r from-white via-blue-50/40 to-purple-50/40'
@@ -97,13 +100,21 @@ export default function QuizProgress({
               {/* Time */}
               <div className="text-center">
                 <div className="flex items-center gap-1 mb-1">
-                  <Clock className={`h-4 w-4 ${isTimeRunningLow ? 'text-red-600' : 'text-orange-600'}`} />
+                  <Clock className={`h-4 w-4 ${isTimeCritical ? 'text-red-600 animate-pulse' : isTimeRunningLow ? 'text-red-600' : 'text-orange-600'}`} />
                   <span className="text-sm font-medium text-gray-700">Time</span>
                 </div>
-                <div className={`text-2xl font-bold ${isTimeRunningLow ? 'text-red-600' : 'text-emerald-600'}`}>
-                  {timeRemaining}s
+                <div className={`text-2xl font-bold transition-colors duration-300 ${
+                  isTimeCritical ? 'text-red-600 animate-pulse' : 
+                  isTimeRunningLow ? 'text-red-600' : 'text-emerald-600'
+                }`}>
+                  {Math.max(0, timeRemaining)}s
                 </div>
-                {isTimeRunningLow && (
+                {isTimeCritical && (
+                  <div className="text-xs text-red-600 font-bold animate-bounce">
+                    🚨 CRITICAL!
+                  </div>
+                )}
+                {isTimeRunningLow && !isTimeCritical && (
                   <div className="text-xs text-red-600 font-medium animate-pulse">
                     ⚠️ Hurry!
                   </div>
@@ -147,18 +158,27 @@ export default function QuizProgress({
 
           </div>
 
-          {/* Bottom: Time Progress Bar */}
-          <div className="mt-4">
-            <div className="relative h-3 rounded-full overflow-hidden bg-gray-200">
+          {/* Bottom: Enhanced Time Progress Bar */}
+          <div className="mt-4 space-y-2">
+            <div className="relative h-4 rounded-full overflow-hidden bg-gray-200 shadow-inner">
               <div
-                className={`absolute inset-y-0 left-0 bg-gradient-to-r ${gradientBar} transition-[width] duration-300`}
+                className={`absolute inset-y-0 left-0 bg-gradient-to-r ${gradientBar} transition-all duration-500 ease-out`}
                 style={{ width: `${Math.min(100, Math.max(0, timePercentage))}%` }}
               />
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className="text-[10px] font-bold text-gray-700">
+                <span className={`text-[11px] font-bold transition-colors duration-300 ${
+                  isTimeCritical ? 'text-white' : 
+                  isTimeRunningLow ? 'text-red-800' : 'text-gray-700'
+                }`}>
                   {Math.round(timePercentage)}% time left
                 </span>
               </div>
+            </div>
+            
+            {/* Question Progress Indicator */}
+            <div className="flex items-center justify-between text-xs text-gray-600">
+              <span>Question {displayQuestion} of {totalQuestions}</span>
+              <span>{Math.round(progressPercentage)}% complete</span>
             </div>
           </div>
         </CardContent>
