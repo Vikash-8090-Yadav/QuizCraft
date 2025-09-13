@@ -21,10 +21,10 @@ export async function POST(request: NextRequest) {
     });
 
     // Compose a prompt for OpenAI
-    const prompt = `Generate exactly 10 ${difficulty} multiple-choice quiz questions about ${category}.
+    const prompt = `Generate exactly ${questionCount} ${difficulty} multiple-choice quiz questions about ${category}.
 Return STRICT JSON ONLY with NO prose, NO markdown, NO code fences.
 Ensure questions are diverse and non-repetitive. Vary phrasing, subtopics, and difficulty within the band.
-Return a JSON array of 10 objects, each with this schema:
+Return a JSON array of ${questionCount} objects, each with this schema:
 {
   "question": string,
   "options": [string, string, string, string],
@@ -201,6 +201,26 @@ Return a JSON array of 10 objects, each with this schema:
           { question: `${topic}: CSS stands for?`, options: ["Colorful Style Sheets", "Cascading Style Sheets", "Computer Style Sheets", "Creative Style System"], correctAnswer: 1, explanation: 'CSS stands for "Cascading Style Sheets".' },
           { question: `${topic}: Which company developed TypeScript?`, options: ["Google", "Facebook", "Microsoft", "Amazon"], correctAnswer: 2, explanation: 'TypeScript was developed by Microsoft.' },
           { question: `${topic}: Which framework is for React routing?`, options: ["Vuex", "Next.js", "Laravel", "Django"], correctAnswer: 1, explanation: 'Next.js is a React framework that includes routing.' },
+          { question: `${topic}: What does API stand for?`, options: ["Application Programming Interface", "Advanced Programming Interface", "Automated Programming Interface", "Application Process Integration"], correctAnswer: 0, explanation: 'API stands for "Application Programming Interface".' },
+          { question: `${topic}: Which is a frontend framework?`, options: ["Express.js", "Django", "React", "Flask"], correctAnswer: 2, explanation: 'React is a frontend JavaScript framework.' },
+          { question: `${topic}: What is Docker used for?`, options: ["Database management", "Containerization", "Version control", "Web hosting"], correctAnswer: 1, explanation: 'Docker is used for containerization of applications.' },
+          { question: `${topic}: Which is a cloud provider?`, options: ["GitHub", "AWS", "Docker", "Nginx"], correctAnswer: 1, explanation: 'AWS (Amazon Web Services) is a major cloud provider.' },
+          { question: `${topic}: What does SQL stand for?`, options: ["Structured Query Language", "Simple Query Language", "Standard Query Language", "System Query Language"], correctAnswer: 0, explanation: 'SQL stands for "Structured Query Language".' },
+          { question: `${topic}: Which is a JavaScript runtime?`, options: ["Python", "Node.js", "Java", "C++"], correctAnswer: 1, explanation: 'Node.js is a JavaScript runtime environment.' },
+          { question: `${topic}: What is the purpose of HTML?`, options: ["Styling", "Structure", "Logic", "Database"], correctAnswer: 1, explanation: 'HTML is used to structure web page content.' },
+          { question: `${topic}: Which is a version control system?`, options: ["Git", "MySQL", "Apache", "Nginx"], correctAnswer: 0, explanation: 'Git is a distributed version control system.' },
+          { question: `${topic}: What does URL stand for?`, options: ["Uniform Resource Locator", "Universal Resource Locator", "Unified Resource Locator", "Unique Resource Locator"], correctAnswer: 0, explanation: 'URL stands for "Uniform Resource Locator".' },
+          { question: `${topic}: Which is a CSS preprocessor?`, options: ["SASS", "HTML", "JavaScript", "Python"], correctAnswer: 0, explanation: 'SASS is a CSS preprocessor that extends CSS functionality.' },
+          { question: `${topic}: What is the purpose of a CDN?`, options: ["Code development", "Content delivery", "Database management", "User authentication"], correctAnswer: 1, explanation: 'CDN (Content Delivery Network) is used for faster content delivery.' },
+          { question: `${topic}: Which is a testing framework?`, options: ["Jest", "Express", "MongoDB", "Apache"], correctAnswer: 0, explanation: 'Jest is a popular JavaScript testing framework.' },
+          { question: `${topic}: What does REST stand for?`, options: ["Representational State Transfer", "Remote State Transfer", "Resource State Transfer", "Rapid State Transfer"], correctAnswer: 0, explanation: 'REST stands for "Representational State Transfer".' },
+          { question: `${topic}: Which is a package manager?`, options: ["npm", "HTML", "CSS", "SQL"], correctAnswer: 0, explanation: 'npm is a package manager for JavaScript.' },
+          { question: `${topic}: What is the purpose of HTTPS?`, options: ["Faster loading", "Security", "Styling", "Database"], correctAnswer: 1, explanation: 'HTTPS provides secure communication over HTTP.' },
+          { question: `${topic}: Which is a database?`, options: ["React", "PostgreSQL", "Express", "Node.js"], correctAnswer: 1, explanation: 'PostgreSQL is a relational database management system.' },
+          { question: `${topic}: What does JSON stand for?`, options: ["JavaScript Object Notation", "Java Standard Object Notation", "JavaScript Online Notation", "Java Script Object Network"], correctAnswer: 0, explanation: 'JSON stands for "JavaScript Object Notation".' },
+          { question: `${topic}: Which is a web server?`, options: ["Apache", "React", "MongoDB", "Express"], correctAnswer: 0, explanation: 'Apache is a popular web server software.' },
+          { question: `${topic}: What is the purpose of caching?`, options: ["Security", "Performance", "Styling", "Database"], correctAnswer: 1, explanation: 'Caching improves performance by storing frequently accessed data.' },
+          { question: `${topic}: Which is a design pattern?`, options: ["MVC", "HTML", "CSS", "JavaScript"], correctAnswer: 0, explanation: 'MVC (Model-View-Controller) is a software design pattern.' },
         ]
         const result: Array<{ id: string; question: string; options: string[]; correctAnswer: number; timeLimit: number; explanation: string }> = []
         // Deterministic selection order if seeded
