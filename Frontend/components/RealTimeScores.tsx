@@ -28,14 +28,49 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
 
+  // Early return if lobbyId is invalid
+  if (!lobbyId || lobbyId === 'undefined' || lobbyId === 'null') {
+    return (
+      <Card className="mb-8 border-0 shadow-xl bg-gradient-to-br from-white via-red-50/30 to-red-50/30 backdrop-blur-sm">
+        <CardContent className="p-8 text-center">
+          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trophy className="h-8 w-8 text-red-500" />
+          </div>
+          <p className="text-red-600 font-medium">Invalid lobby ID. Please check the URL.</p>
+        </CardContent>
+      </Card>
+    )
+  }
+
   const fetchScores = async () => {
     try {
       setLoading(true)
+      
+      // Validate lobbyId before making the request
+      if (!lobbyId || lobbyId === 'undefined' || lobbyId === 'null') {
+        throw new Error('Invalid lobby ID')
+      }
+      
+      console.log('Fetching scores for lobbyId:', lobbyId)
       const response = await fetch(`/api/scores/all-players?lobbyId=${lobbyId}`)
       
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to fetch scores')
+        console.error('Response not OK:', {
+          status: response.status,
+          statusText: response.statusText,
+          url: response.url
+        })
+        
+        let errorData
+        try {
+          errorData = await response.json()
+          console.error('API Error Data:', errorData)
+        } catch (parseError) {
+          console.error('Failed to parse error response as JSON:', parseError)
+          errorData = { error: `HTTP ${response.status}: ${response.statusText}` }
+        }
+        
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
       }
       
       const data = await response.json()
@@ -249,7 +284,7 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
                 
                 return (
                 <div
-                  key={`realtime-${player.player_address}-${playerRank}`}
+                  key={`realtime-${player.player_address}-${index}`}
                   className={`group relative overflow-hidden rounded-2xl border-2 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
                     isCurrentPlayer ? 'bg-gradient-to-r from-green-50 to-emerald-50 border-green-300 ring-2 ring-green-400 ring-opacity-50 shadow-lg shadow-green-500/20' :
                     isTopThree && playerRank === 0 ? 'bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-300 shadow-lg shadow-yellow-500/20' :
