@@ -271,18 +271,23 @@ export default function ArenaPage() {
           const playerCount = Number(lobby.playerCount)
           const maxPlayers = Number(lobby.maxPlayers)
           
+          // Check if lobby is expired
+          const currentTime = Math.floor(Date.now() / 1000)
+          const lobbyCreatedAt = Number(lobby.createdAt)
+          const isExpired = currentTime >= lobbyCreatedAt + (5 * 60) // 5 minutes timeout
+
           // Determine lobby status
           let isActive = false
           let statusText = ""
           if (status === 0) { // OPEN
-            isActive = playerCount < maxPlayers
-            statusText = playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`
+            isActive = !isExpired && playerCount < maxPlayers
+            statusText = isExpired ? "Expired" : (playerCount === 0 ? "Waiting for players" : `${playerCount}/${maxPlayers} players`)
           } else if (status === 1) { // STARTED
-            isActive = playerCount < maxPlayers
-            statusText = `${playerCount}/${maxPlayers} players`
+            isActive = !isExpired && playerCount < maxPlayers
+            statusText = isExpired ? "Expired" : `${playerCount}/${maxPlayers} players`
           } else if (status === 2) { // IN_PROGRESS
             isActive = false
-            statusText = "Game in progress"
+            statusText = isExpired ? "Expired" : "Game in progress"
           } else if (status === 3) { // COMPLETED
             isActive = false
             statusText = "Completed"
@@ -311,6 +316,7 @@ export default function ArenaPage() {
             currentPlayers: playerCount,
             maxPlayers: maxPlayers,
             isActive: isActive,
+            isExpired: isExpired,
             creator: creatorAddress, // Use correct creator address from index 11
             status: statusText,
             isUserInLobby: isUserInLobby,
@@ -1214,11 +1220,11 @@ export default function ArenaPage() {
                           </Button>
                         ) : (
                           <Button
-                            onClick={() => joinLobby(lobby)}
+                            onClick={() => lobby.isActive ? joinLobby(lobby) : window.location.href = `/arena/${Number(lobby.id)}`}
                             disabled={joiningLobby === lobby.id}
                             size="lg"
                             className="h-14 px-8 text-lg font-semibold shadow-lg transition-all duration-300 hover:shadow-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-accent"
-                            aria-label={`Join lobby ${lobby.name} for ${lobby.entryFee} CFX`}
+                            aria-label={lobby.isActive ? `Join lobby ${lobby.name} for ${lobby.entryFee} CFX` : `View results for lobby ${lobby.name}`}
                           >
                             {joiningLobby === lobby.id ? (
                               <>
@@ -1227,8 +1233,17 @@ export default function ArenaPage() {
                               </>
                             ) : (
                               <>
-                                <Swords className="mr-3 h-5 w-5" />
-                                {lobby.isActive ? `Enter Battle (${lobby.entryFee} CFX)` : 'View Results (Open to All)'}
+                                {lobby.isActive ? (
+                                  <>
+                                    <Swords className="mr-3 h-5 w-5" />
+                                    Enter Battle ({lobby.entryFee} CFX)
+                                  </>
+                                ) : (
+                                  <>
+                                    <Trophy className="mr-3 h-5 w-5" />
+                                    View Results (Open to All)
+                                  </>
+                                )}
                               </>
                             )}
                           </Button>
