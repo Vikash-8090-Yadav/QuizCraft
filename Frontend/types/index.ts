@@ -28,6 +28,7 @@ export interface Lobby {
   currentPlayers: number
   maxPlayers: number
   isActive: boolean
+  isExpired?: boolean
   creator?: string
   status?: string
   isUserInLobby?: boolean
