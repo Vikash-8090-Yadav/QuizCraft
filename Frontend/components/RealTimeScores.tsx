@@ -269,15 +269,44 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
               .sort((a, b) => {
                 // First sort by whether they've played (played players first)
                 if (a.has_played !== b.has_played) {
-                  return b.has_played ? 1 : -1
+                  return b.has_played ? -1 : 1
                 }
                 // Then sort by score (highest first)
-                return b.score - a.score
+                if (b.score !== a.score) {
+                  return b.score - a.score
+                }
+                // Tie-breaker 1: More correct answers
+                if (b.correct_answers !== a.correct_answers) {
+                  return b.correct_answers - a.correct_answers
+                }
+                // Tie-breaker 2: Higher time bonus
+                if (b.time_bonus !== a.time_bonus) {
+                  return b.time_bonus - a.time_bonus
+                }
+                // Tie-breaker 3: Alphabetical by address (deterministic)
+                return a.player_address.localeCompare(b.player_address)
               })
               .map((player, index) => {
-                // Calculate rank only for players who have played
+                // Calculate rank based on the sorted array index
+                // Only players who have played get ranks
                 const playedPlayers = scores.filter(p => p.has_played)
-                const playerRank = playedPlayers.findIndex(p => p.player_address === player.player_address)
+                const sortedPlayedPlayers = playedPlayers.sort((a, b) => {
+                  // Same sorting logic as above
+                  if (b.score !== a.score) {
+                    return b.score - a.score
+                  }
+                  // Tie-breaker 1: More correct answers
+                  if (b.correct_answers !== a.correct_answers) {
+                    return b.correct_answers - a.correct_answers
+                  }
+                  // Tie-breaker 2: Higher time bonus
+                  if (b.time_bonus !== a.time_bonus) {
+                    return b.time_bonus - a.time_bonus
+                  }
+                  // Tie-breaker 3: Alphabetical by address (deterministic)
+                  return a.player_address.localeCompare(b.player_address)
+                })
+                const playerRank = sortedPlayedPlayers.findIndex(p => p.player_address === player.player_address)
                 const isTopThree = player.has_played && playerRank >= 0 && playerRank < 3
                 const isCurrentPlayer = currentPlayerAddress && 
                   player.player_address.toLowerCase() === currentPlayerAddress.toLowerCase()
