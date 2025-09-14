@@ -5,7 +5,7 @@
 [![Solidity](https://img.shields.io/badge/Solidity-^0.8.0-blue)](https://soliditylang.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue)](https://www.typescriptlang.org/)
 
-> **Your Knowledge, On-Chain. Powered by Conflux.**
+
 
 A dynamic, AI-powered quiz platform on Conflux eSpace where users instantly play solo for points and NFTs or compete in live PvP matches for CFX prizes, leveraging Conflux's high throughput and low fees.
 
