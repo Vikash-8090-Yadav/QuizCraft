@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Supabase env vars missing' }, { status: 500 })
     }
 
-    // Ensure a game row exists for this lobby: latest open game or create one
+    // Ensure a game row exists for this lobby: latest game or create one
     const db = supabase
 
     const { data: existingGame, error: gameQueryErr } = await db
@@ -59,16 +59,41 @@ export async function POST(req: NextRequest) {
 
     let gameId = existingGame?.id
     if (!gameId) {
-      const { data: created, error: createErr } = await db
-        .from('games')
-        .insert({ lobby_id: lobbyId, status: 'in_progress' })
-        .select('*')
-        .single()
-      if (createErr) {
-        console.error('create game error', createErr)
-        return NextResponse.json({ error: 'Failed to create game', details: createErr.message }, { status: 500 })
+      // Try to create a game, but handle race conditions
+      try {
+        const { data: created, error: createErr } = await db
+          .from('games')
+          .insert({ lobby_id: lobbyId, status: 'in_progress' })
+          .select('*')
+          .single()
+        
+        if (createErr) {
+          // If creation failed, try to get the latest game again (might have been created by another request)
+          const { data: retryGame, error: retryErr } = await db
+            .from('games')
+            .select('*')
+            .eq('lobby_id', lobbyId)
+            .order('started_at', { ascending: false })
+            .limit(1)
+            .single()
+          
+          if (retryErr) {
+            console.error('create game error and retry failed', createErr, retryErr)
+            return NextResponse.json({ error: 'Failed to create game', details: createErr.message }, { status: 500 })
+          }
+          
+          gameId = retryGame.id
+          console.log('Game was created by another request, using existing game:', gameId)
+        } else {
+          gameId = created.id
+          console.log('Created new game:', gameId)
+        }
+      } catch (e) {
+        console.error('Unexpected error creating game:', e)
+        return NextResponse.json({ error: 'Failed to create game', details: (e as any)?.message || String(e) }, { status: 500 })
       }
-      gameId = created.id
+    } else {
+      console.log('Using existing game:', gameId)
     }
 
     // Upsert all player results for this game
