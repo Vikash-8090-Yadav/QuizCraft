@@ -58,7 +58,7 @@
 - ✅ Real-time lobby management
 - ✅ Transparent prize distribution
 
-### 🎨 NFT Achievements
+### 🎨 NFT Achievements (Working in prrogress)
 - **CRC-721 Standard**: Conflux-native NFT badges
 - **Achievement System**: Unlock NFTs for milestones
 - **Leaderboard Rewards**: Daily NFT prizes for top players
