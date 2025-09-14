@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useToast } from "@/hooks/use-toast"
+import { useWinnerToast } from "@/hooks/use-winner-toast"
 import { useWeb3 } from "@/components/Web3Provider"
 import { ethers } from "ethers"
 import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
@@ -32,7 +32,7 @@ import RealTimeScores from "@/components/RealTimeScores"
 export default function LobbyPage() {
   const params = useParams()
   const router = useRouter()
-  const { toast } = useToast()
+  const { toast, showWinnerToast, showPayoutToast, showCelebrationToast } = useWinnerToast()
   const { signer, isConnected, isOnConflux, account } = useWeb3()
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [loading, setLoading] = useState(true)
@@ -604,10 +604,10 @@ export default function LobbyPage() {
     setResolvingPrize(true)
     
     // Show loading toast
-    toast({
+    const loadingToast = toast({
       title: "⏳ Resolving Prize...",
       description: "Processing prize distribution on-chain. Please wait.",
-      duration: 3000
+      duration: 0 // Don't auto-dismiss loading toast
     })
     
     try {
@@ -655,26 +655,32 @@ export default function LobbyPage() {
       const contract = new ethers.Contract(CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA, QUIZ_CRAFT_ARENA_ABI, signer)
       
       // Call executeWinnerPayout on-chain using the creator's wallet
+      console.log("Calling executeWinnerPayout with lobbyId:", numericLobbyId, "winner:", winnerAddress)
       const tx = await contract.executeWinnerPayout(numericLobbyId, winnerAddress)
       console.log("executeWinnerPayout transaction sent:", tx.hash)
       
       // Wait for confirmation
+      console.log("Waiting for transaction confirmation...")
       const receipt = await tx.wait()
       console.log("Prize payout transaction confirmed:", receipt)
+      console.log("Transaction status:", receipt.status === 1 ? "SUCCESS" : "FAILED")
+
+      // Dismiss loading toast
+      loadingToast.dismiss()
 
       // Enhanced success toast with transaction link
       toast({ 
         title: "🏆 Prize Resolved Successfully!", 
-        description: `The winner has received the prize pool!`,
-        duration: 6000,
+        description: `The winner has received the prize pool! Transaction: ${tx.hash.slice(0, 10)}...`,
+        duration: 8000,
         action: (
           <a 
             href={`https://evmtestnet.confluxscan.org/tx/${tx.hash}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 underline text-sm"
+            className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
           >
-            View Transaction
+            View on ConfluxScan
           </a>
         )
       })
@@ -690,11 +696,39 @@ export default function LobbyPage() {
       
     } catch (e: any) {
       console.error('resolvePrizeAsCreator error', e)
+      
+      // Dismiss loading toast
+      loadingToast.dismiss()
+      
+      // Extract more specific error message
+      let errorMessage = 'Failed to resolve prize. Please try again.'
+      
+      if (e?.reason) {
+        errorMessage = e.reason
+      } else if (e?.message) {
+        errorMessage = e.message
+      } else if (e?.error?.message) {
+        errorMessage = e.error.message
+      }
+      
+      // Handle specific smart contract errors
+      if (errorMessage.includes('Already distributed')) {
+        errorMessage = 'Prize has already been distributed for this lobby.'
+      } else if (errorMessage.includes('Lobby not in progress')) {
+        errorMessage = 'Lobby is not in the correct state for prize distribution.'
+      } else if (errorMessage.includes('Winner not in this lobby')) {
+        errorMessage = 'The selected winner is not a valid participant in this lobby.'
+      } else if (errorMessage.includes('Lobby not expired yet')) {
+        errorMessage = 'Lobby timeout has not been reached yet. Please wait before resolving.'
+      } else if (errorMessage.includes('Prize transfer failed')) {
+        errorMessage = 'Failed to transfer prize to winner. Please try again.'
+      }
+      
       toast({
         title: "❌ Prize Resolution Failed",
-        description: e?.message || 'Failed to resolve prize. Please try again.',
+        description: errorMessage,
         variant: "destructive",
-        duration: 5000
+        duration: 8000
       })
     } finally {
       setResolvingPrize(false)
