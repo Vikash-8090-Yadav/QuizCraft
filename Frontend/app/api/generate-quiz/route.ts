@@ -33,7 +33,7 @@ Return a JSON array of ${questionCount} objects, each with this schema:
 }`
 
     // OpenAI API key from environment variables
-    const apiKey = process.env.OPENAI_API_KEY || "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"
+    const apiKey = process.env.OPENAI_API_KEY
 
     const callOpenAI = async (model: string) => {
       if (!apiKey) {
