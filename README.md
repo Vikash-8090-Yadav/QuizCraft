@@ -7,11 +7,11 @@
 
 
 
-A dynamic, AI-powered quiz platform on Conflux eSpace where users instantly play solo for points and NFTs or compete in live PvP matches for CFX prizes, leveraging Conflux's high throughput and low fees.
+#### A dynamic, AI-powered quiz platform on Conflux eSpace where users instantly play solo for points and NFTs or compete in live PvP matches for CFX prizes, leveraging Conflux's high throughput and low fees.
 
 ## 🎯 Live Demo
 
-🌐 **Live Application**: [https://quiz-craft-vjl5.vercel.app/](https://quiz-craft-vjl5.vercel.app/)
+🌐 **Live Application**: [https://quiz-craft-vjl5.vercel.app/](https://quiz-craft-sepia.vercel.app/)
 
 📱 **Testnet**: Conflux eSpace Testnet  
 🔗 **Contract**: [View on ConfluxScan](https://evmtestnet.confluxscan.org/)
@@ -149,63 +149,7 @@ sequenceDiagram
     C-->>F: Transfer CFX to Winner
 ```
 
-### Data Flow Architecture
-```mermaid
-graph LR
-    subgraph "Frontend Layer"
-        A[Next.js App]
-        B[React Components]
-        C[Web3 Provider]
-        D[AI Integration]
-    end
-    
-    subgraph "Blockchain Layer"
-        E[Conflux eSpace]
-        F[Smart Contract]
-        G[CFX Escrow]
-        H[NFT Contract]
-    end
-    
-    subgraph "External Services"
-        I[OpenAI API]
-        J[ConfluxScan]
-        K[IPFS Storage]
-    end
-    
-    A --> B
-    B --> C
-    C --> E
-    E --> F
-    F --> G
-    F --> H
-    A --> D
-    D --> I
-    F --> J
-    H --> K
-```
 
-### User Journey Flow
-```mermaid
-journey
-    title QuizCraft User Journey
-    section Discovery
-      Visit App: 5: User
-      Connect Wallet: 4: User
-      Choose Mode: 5: User
-    section Solo Mode
-      Select Category: 4: User
-      Play Quiz: 5: User
-      View Score: 5: User
-      Earn NFT: 5: User
-    section Arena Mode
-      Browse Lobbies: 4: User
-      Join Lobby: 3: User
-      Deposit CFX: 3: User
-      Wait for Players: 2: User
-      Play Game: 5: User
-      Win/Lose: 4: User
-      Receive Prize: 5: User
-```
 
 ## 🚀 Quick Start
 
