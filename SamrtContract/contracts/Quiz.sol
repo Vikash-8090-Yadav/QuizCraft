@@ -99,6 +99,7 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         require(msg.value == lobby.entryFee, "Incorrect entry fee");
         require(lobby.players.length < lobby.maxPlayers, "Lobby full");
         require(block.timestamp <= lobby.createdAt + LOBBY_TIMEOUT, "Lobby expired");
+        require(msg.sender != lobby.creator, "Creator cannot join this lobby");
 
         // Add player
         lobby.players.push(msg.sender);
@@ -137,6 +138,7 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
         lobby.distribution = DistributionStatus.DISTRIBUTED;
 
         uint256 prize = lobby.prizePool;
+        require(prize > 0, "No prize to distribute");
         lobby.prizePool = 0; // avoid re-entrancy double spend
 
         (bool success, ) = payable(_winner).call{value: prize}("");
@@ -158,6 +160,21 @@ contract QuizCraftArena is ReentrancyGuard, Ownable {
 
     function getPlayersInLobby(uint256 _lobbyId) external view validLobby(_lobbyId) returns (address[] memory) {
         return lobbies[_lobbyId].players;
+    }
+
+    function getLobbyResult(uint256 _lobbyId)
+        external
+        view
+        validLobby(_lobbyId)
+        returns (LobbyStatus, address, uint256)
+    {
+        Lobby storage lobby = lobbies[_lobbyId];
+        require(
+            block.timestamp >= lobby.createdAt + LOBBY_TIMEOUT || 
+            lobby.status == LobbyStatus.COMPLETED,
+            "Results not available yet"
+        );
+        return (lobby.status, lobby.winner, lobby.prizePool);
     }
 
     // ===== ADMIN =====
