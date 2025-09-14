@@ -1,4 +1,0 @@
-{
-  "/arena/page": "app/arena/page.js",
-  "/arena/[lobbyId]/page": "app/arena/[lobbyId]/page.js"
-}
