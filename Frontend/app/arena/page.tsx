@@ -13,11 +13,9 @@ import { ethers } from "ethers"
 import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
 import { IS_DEVELOPMENT, CONFLUX_TESTNET } from "@/lib/constants"
 import type { Lobby } from "@/types"
-import { Trophy, Users, Coins, Loader2, Swords, Crown, Zap, Shield, Plus, X, CheckCircle, AlertCircle, Info, RefreshCw, Clock } from "lucide-react"
+import { Trophy, Users, Coins, Loader2, Swords, Crown, Zap, Plus, X, CheckCircle, AlertCircle, Info, RefreshCw, Clock } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-const OWNER_ADDRESS = "0xc3E894473BB51b5e5453042420A1d465E69cbCB9"
 
 declare global {
   interface Window {
@@ -42,15 +40,14 @@ export default function ArenaPage() {
     entryFee: "",
     maxPlayers: "2"
   })
-  const [isAdminPanelOpen, setIsAdminPanelOpen] = useState(false)
-  const [platformFee, setPlatformFee] = useState<number | null>(null)
   const [gameMaster, setGameMaster] = useState<string | null>(null)
-  const [isOwner, setIsOwner] = useState(false)
-  const [updatingFee, setUpdatingFee] = useState(false)
-  const [updatingGameMaster, setUpdatingGameMaster] = useState(false)
   const [updatingScores, setUpdatingScores] = useState<string | null>(null)
-  const [newFee, setNewFee] = useState("")
-  const [newGameMaster, setNewGameMaster] = useState("")
+  const [showMyLobbies, setShowMyLobbies] = useState(false)
+
+  // Filter lobbies based on current view
+  const filteredLobbies = showMyLobbies && account 
+    ? lobbies.filter(lobby => lobby.creator?.toLowerCase() === account.toLowerCase())
+    : lobbies
 
   // Function to update scores to blockchain (only for game master)
   const updateLobbyScores = async (lobbyId: string) => {
@@ -328,24 +325,6 @@ export default function ArenaPage() {
       setLobbies(fetched)
       setDebugInfo(`Loaded ${fetched.length} lobbies`)
 
-      // Check if current account is owner and fetch admin data
-      if (account) {
-        try {
-          const owner = await readContract.owner()
-          const isOwnerAccount = owner.toLowerCase() === account.toLowerCase()
-          setIsOwner(isOwnerAccount)
-
-          if (isOwnerAccount) {
-            // Note: The new contract doesn't have platformFeeBps or gameMaster functions
-            // These are now managed differently in the new contract
-            console.log("Owner account detected, but platform fee and game master functions not available in new contract")
-            setPlatformFee(null)
-            setGameMaster(null)
-          }
-        } catch (err) {
-          console.error("Error fetching admin data:", err)
-        }
-      }
     } catch (error) {
       console.error("Error fetching lobbies:", error)
       setDebugInfo(`Error: ${error}`)
@@ -499,6 +478,8 @@ export default function ArenaPage() {
   }, [isConnected, isOnConflux, account, fetchLobbies])
 
   const joinLobby = async (lobby: Lobby) => {
+    console.log("joinLobby function called")
+    
     if (!signer || !isConnected) {
       toast({ title: "Connect wallet", description: "Please connect your wallet to join.", variant: "destructive" })
       return
@@ -590,14 +571,21 @@ export default function ArenaPage() {
       }
     } catch (error: any) {
       console.error("Error joining lobby:", error)
+      console.log("About to show toast with error:", error.reason || error.message)
 
-      if (error.code === "ACTION_REJECTED") {
-        toast({ title: "Transaction rejected", description: "You cancelled the join.", variant: "destructive" })
-      } else if (error.code === "INSUFFICIENT_FUNDS") {
-        toast({ title: "Insufficient funds", description: "Not enough CFX to cover entry fee.", variant: "destructive" })
-      } else {
-        toast({ title: "Join failed", description: "Please try again.", variant: "destructive" })
-      }
+      // Show smart contract error directly
+      const errorMessage = error.reason || error.message || "Transaction failed"
+      
+      console.log("Toast will show:", errorMessage)
+      
+      // Show simple toast with 10 second duration and close button
+      toast({ 
+        title: "❌ Join Failed", 
+        description: errorMessage,
+        duration: 10000
+      })
+      
+      console.log("Toast called")
     } finally {
       setJoiningLobby(null)
     }
@@ -669,65 +657,51 @@ export default function ArenaPage() {
       setLobbyForm({ name: "", category: "", entryFee: "", maxPlayers: "2" })
       setIsCreateModalOpen(false)
       
-      // Auto-refresh lobbies to show the new lobby with loading state
+      // Auto-refresh lobbies immediately and then again after a delay
+      fetchLobbies() // Immediate refresh
       setTimeout(() => {
-        fetchLobbies()
-      }, 2000) // Wait 2 seconds for blockchain to update
+        fetchLobbies() // Refresh again after blockchain update
+      }, 3000) // Wait 3 seconds for blockchain to fully update
+      
+      // Refresh the page to ensure new lobby is visible
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000) // Refresh page after 2 seconds
     } catch (error: any) {
       console.error("Error creating lobby:", error)
-      toast({ title: "Create failed", description: error.message || "Please try again.", variant: "destructive" })
+      
+      // Check if error has transaction hash (transaction failed but was sent)
+      const txHash = error?.transaction?.hash || error?.receipt?.transactionHash || error?.hash
+      const errorMessage = error?.reason || error?.message || "Please try again."
+      
+      toast({ 
+        title: "❌ Lobby Creation Failed", 
+        description: errorMessage,
+        variant: "destructive",
+        duration: 5000,
+        action: txHash ? (
+          <a 
+            href={`https://evmtestnet.confluxscan.org/tx/${txHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-red-600 hover:text-red-800 underline text-sm"
+          >
+            View on Explorer
+          </a>
+        ) : undefined
+      })
     } finally {
       setCreatingLobby(false)
     }
   }
 
-  const updatePlatformFee = async () => {
-    if (!signer || !isOwner) return
-    const fee = parseInt(newFee)
-    if (isNaN(fee) || fee < 0 || fee > 1000) {
-      toast({ title: "Invalid fee", description: "Fee must be 0-1000 bps (0-10%).", variant: "destructive" })
-      return
-    }
-    setUpdatingFee(true)
-    try {
-      // Note: The new contract doesn't have updatePlatformFee function
-      // Platform fees are now managed differently in the new contract
-      console.log("Platform fee update requested:", fee)
-      toast({ title: "Fee update not available", description: "Platform fee management is not available in the new contract." })
-    } catch (error: any) {
-      console.error("Error updating fee:", error)
-      toast({ title: "Update failed", description: error.message, variant: "destructive" })
-    } finally {
-      setUpdatingFee(false)
-    }
-  }
-
-  const updateGameMaster = async () => {
-    if (!signer || !isOwner) return
-    if (!newGameMaster || !ethers.isAddress(newGameMaster)) {
-      toast({ title: "Invalid address", description: "Please enter a valid address.", variant: "destructive" })
-      return
-    }
-    setUpdatingGameMaster(true)
-    try {
-      // Note: The new contract doesn't have updateGameMaster function
-      // Game master is now managed differently in the new contract
-      console.log("Game master update requested:", newGameMaster)
-      toast({ title: "Game master update not available", description: "Game master management is not available in the new contract." })
-    } catch (error: any) {
-      console.error("Error updating game master:", error)
-      toast({ title: "Update failed", description: error.message, variant: "destructive" })
-    } finally {
-      setUpdatingGameMaster(false)
-    }
-  }
 
   const getLobbyIcon = (mode: string) => {
     if (mode.includes("Duel")) return <Swords className="h-5 w-5" />
     if (mode.includes("Royale")) return <Crown className="h-5 w-5" />
     if (mode.includes("Quick")) return <Zap className="h-5 w-5" />
     if (mode.includes("Championship")) return <Trophy className="h-5 w-5" />
-    return <Shield className="h-5 w-5" />
+    return <Trophy className="h-5 w-5" />
   }
 
   const getLobbyGradient = (mode: string) => {
@@ -753,7 +727,7 @@ export default function ArenaPage() {
               </p>
               <div className="grid md:grid-cols-3 gap-4 max-w-2xl mx-auto">
                 <div className="p-4 bg-muted/50 rounded-lg">
-                  <Shield className="h-8 w-8 text-green-500 mx-auto mb-2" />
+                  <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
                   <div className="font-semibold">Secure</div>
                   <div className="text-sm text-muted-foreground">Blockchain Protected</div>
                 </div>
@@ -782,7 +756,7 @@ export default function ArenaPage() {
           <Card className="border-2 border-accent/20">
             <CardContent className="py-16">
               <div className="w-20 h-20 bg-gradient-to-br from-accent to-secondary rounded-2xl flex items-center justify-center mx-auto mb-6 animate-pulse-glow">
-                <Shield className="h-10 w-10 text-white" />
+                <AlertCircle className="h-10 w-10 text-white" />
               </div>
               <h2 className="font-montserrat font-bold text-3xl mb-4">Wrong Network</h2>
               <p className="text-xl text-muted-foreground mb-8">
@@ -832,20 +806,30 @@ export default function ArenaPage() {
             </div>
           )}
           
-          
-          {/* Admin Panel Button for Owner */}
-          {isOwner && (
-            <div className="mt-6">
-              <Button
-                onClick={() => setIsAdminPanelOpen(true)}
-                size="lg"
-                className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600"
-              >
-                <Shield className="mr-2 h-4 w-4" />
-                Admin Panel
-              </Button>
+          {/* Lobby View Toggle */}
+          {isConnected && account && (
+            <div className="mt-6 flex justify-center">
+              <div className="flex bg-muted/50 rounded-lg p-1">
+                <Button
+                  variant={!showMyLobbies ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setShowMyLobbies(false)}
+                  className="px-6"
+                >
+                  All Lobbies
+                </Button>
+                <Button
+                  variant={showMyLobbies ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setShowMyLobbies(true)}
+                  className="px-6"
+                >
+                  My Lobbies
+                </Button>
+              </div>
             </div>
           )}
+          
 
           {/* Create Lobby Button for All Users */}
           {account && (
@@ -860,98 +844,141 @@ export default function ArenaPage() {
                     Create New Lobby
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                      <Trophy className="h-5 w-5 text-yellow-500" />
+                <DialogContent className="sm:max-w-[500px]">
+                  <DialogHeader className="text-center pb-6">
+                    <div className="w-16 h-16 bg-gradient-to-br from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Trophy className="h-8 w-8 text-white" />
+                    </div>
+                    <DialogTitle className="text-2xl font-bold bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">
                       Create New Lobby
                     </DialogTitle>
-                    <DialogDescription>
-                      Set up a new quiz lobby with custom settings. Anyone can create lobbies.
+                    <DialogDescription className="text-base">
+                      Set up a competitive quiz lobby and invite players to join the battle!
                     </DialogDescription>
                   </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <Label htmlFor="lobby-name">Lobby Name</Label>
+                  
+                  <div className="space-y-6 py-4">
+                    {/* Lobby Name */}
+                    <div className="space-y-3">
+                      <Label htmlFor="lobby-name" className="text-sm font-semibold flex items-center gap-2">
+                        <Swords className="h-4 w-4 text-green-500" />
+                        Lobby Name
+                      </Label>
                       <Input
                         id="lobby-name"
-                        placeholder="e.g., Lightning Duel, Battle Royale"
+                        placeholder="e.g., Lightning Duel, Battle Royale, Quick Match"
                         value={lobbyForm.name}
                         onChange={(e) => setLobbyForm({ ...lobbyForm, name: e.target.value })}
+                        className="h-12 text-base"
+                        disabled={creatingLobby}
                       />
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="category">Quiz Category</Label>
-                      <Select value={lobbyForm.category} onValueChange={(value) => setLobbyForm({ ...lobbyForm, category: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a category" />
+
+                    {/* Quiz Category */}
+                    <div className="space-y-3">
+                      <Label htmlFor="category" className="text-sm font-semibold flex items-center gap-2">
+                        <Crown className="h-4 w-4 text-purple-500" />
+                        Quiz Category
+                      </Label>
+                      <Select value={lobbyForm.category} onValueChange={(value) => setLobbyForm({ ...lobbyForm, category: value })} disabled={creatingLobby}>
+                        <SelectTrigger className="h-12 text-base">
+                          <SelectValue placeholder="Choose a category for your quiz" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="Technology">Technology</SelectItem>
-                          <SelectItem value="Cryptocurrency">Cryptocurrency</SelectItem>
-                          <SelectItem value="Conflux Network">Conflux Network</SelectItem>
-                          <SelectItem value="Science">Science</SelectItem>
-                          <SelectItem value="History">History</SelectItem>
-                          <SelectItem value="Sports">Sports</SelectItem>
-                          <SelectItem value="Entertainment">Entertainment</SelectItem>
-                          <SelectItem value="General Knowledge">General Knowledge</SelectItem>
-                          <SelectItem value="Mathematics">Mathematics</SelectItem>
+                          <SelectItem value="Technology">🔬 Technology</SelectItem>
+                          <SelectItem value="Cryptocurrency">₿ Cryptocurrency</SelectItem>
+                          <SelectItem value="Conflux Network">🌐 Conflux Network</SelectItem>
+                          <SelectItem value="Science">🧪 Science</SelectItem>
+                          <SelectItem value="History">📚 History</SelectItem>
+                          <SelectItem value="Sports">⚽ Sports</SelectItem>
+                          <SelectItem value="Entertainment">🎬 Entertainment</SelectItem>
+                          <SelectItem value="General Knowledge">🧠 General Knowledge</SelectItem>
+                          <SelectItem value="Mathematics">🔢 Mathematics</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="entry-fee">Entry Fee (CFX)</Label>
-                      <Input
-                        id="entry-fee"
-                        type="number"
-                        step="0.1"
-                        min="0.1"
-                        placeholder="e.g., 1.0, 0.5, 2.0"
-                        value={lobbyForm.entryFee}
-                        onChange={(e) => setLobbyForm({ ...lobbyForm, entryFee: e.target.value })}
-                      />
+
+                    {/* Entry Fee and Max Players Row */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <Label htmlFor="entry-fee" className="text-sm font-semibold flex items-center gap-2">
+                          <Coins className="h-4 w-4 text-yellow-500" />
+                          Entry Fee (CFX)
+                        </Label>
+                        <Input
+                          id="entry-fee"
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          placeholder="1.0"
+                          value={lobbyForm.entryFee}
+                          onChange={(e) => setLobbyForm({ ...lobbyForm, entryFee: e.target.value })}
+                          className="h-12 text-base"
+                          disabled={creatingLobby}
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <Label htmlFor="max-players" className="text-sm font-semibold flex items-center gap-2">
+                          <Users className="h-4 w-4 text-blue-500" />
+                          Max Players
+                        </Label>
+                        <Select value={lobbyForm.maxPlayers} onValueChange={(value) => setLobbyForm({ ...lobbyForm, maxPlayers: value })} disabled={creatingLobby}>
+                          <SelectTrigger className="h-12 text-base">
+                            <SelectValue placeholder="Select players" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="2">👥 2 Players</SelectItem>
+                            <SelectItem value="3">👥 3 Players</SelectItem>
+                            <SelectItem value="4">👥 4 Players</SelectItem>
+                            <SelectItem value="5">👥 5 Players</SelectItem>
+                            <SelectItem value="6">👥 6 Players</SelectItem>
+                            <SelectItem value="7">👥 7 Players</SelectItem>
+                            <SelectItem value="8">👥 8 Players</SelectItem>
+                            <SelectItem value="9">👥 9 Players</SelectItem>
+                            <SelectItem value="10">👥 10 Players</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="max-players">Max Players</Label>
-                      <Select value={lobbyForm.maxPlayers} onValueChange={(value) => setLobbyForm({ ...lobbyForm, maxPlayers: value })}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select max players" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="2">2 Players</SelectItem>
-                          <SelectItem value="3">3 Players</SelectItem>
-                          <SelectItem value="4">4 Players</SelectItem>
-                          <SelectItem value="5">5 Players</SelectItem>
-                          <SelectItem value="6">6 Players</SelectItem>
-                          <SelectItem value="7">7 Players</SelectItem>
-                          <SelectItem value="8">8 Players</SelectItem>
-                          <SelectItem value="9">9 Players</SelectItem>
-                          <SelectItem value="10">10 Players</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
+
+                    {/* Prize Pool Preview */}
+                    {lobbyForm.entryFee && lobbyForm.maxPlayers && (
+                      <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Trophy className="h-5 w-5 text-yellow-600" />
+                          <span className="font-semibold text-yellow-800">Prize Pool Preview</span>
+                        </div>
+                        <div className="text-2xl font-bold text-yellow-700">
+                          {(parseFloat(lobbyForm.entryFee) * parseInt(lobbyForm.maxPlayers)).toFixed(1)} CFX
+                        </div>
+                        <div className="text-sm text-yellow-600">
+                          Winner takes all! 🏆
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-end gap-2">
+                  <div className="flex justify-end gap-3 pt-4 border-t">
                     <Button
                       variant="outline"
                       onClick={() => setIsCreateModalOpen(false)}
                       disabled={creatingLobby}
+                      className="h-12 px-6"
                     >
                       Cancel
                     </Button>
                     <Button
                       onClick={createLobby}
-                      disabled={creatingLobby}
-                      className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600"
+                      disabled={creatingLobby || !lobbyForm.name.trim() || !lobbyForm.category || !lobbyForm.entryFee}
+                      className="h-12 px-8 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 disabled:opacity-50"
                     >
                       {creatingLobby ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Creating...
+                          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                          Creating Lobby...
                         </>
                       ) : (
                         <>
-                          <Plus className="mr-2 h-4 w-4" />
+                          <Trophy className="mr-2 h-5 w-5" />
                           Create Lobby
                         </>
                       )}
@@ -998,91 +1025,6 @@ export default function ArenaPage() {
             </DialogContent>
           </Dialog>
 
-          {/* Admin Panel Dialog */}
-          <Dialog open={isAdminPanelOpen} onOpenChange={setIsAdminPanelOpen}>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle className="flex items-center gap-2">
-                  <Shield className="h-5 w-5 text-purple-500" />
-                  Admin Panel
-                </DialogTitle>
-                <DialogDescription>
-                  Manage platform settings and game master. Only the contract owner can make changes.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-6 py-4">
-                {/* Current Settings */}
-                <div className="space-y-3">
-                  <h4 className="font-semibold">Current Settings</h4>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-muted-foreground">Platform Fee</p>
-                      <p className="font-semibold">{platformFee !== null ? `${platformFee} bps (${(platformFee / 100).toFixed(1)}%)` : "Loading..."}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Game Master</p>
-                      <p className="font-semibold text-xs break-all">{gameMaster || "Loading..."}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Update Platform Fee */}
-                <div className="space-y-3">
-                  <h4 className="font-semibold">Update Platform Fee</h4>
-                  <div className="flex gap-2">
-                    <Input
-                      type="number"
-                      placeholder="New fee (0-1000 bps)"
-                      value={newFee}
-                      onChange={(e) => setNewFee(e.target.value)}
-                      min="0"
-                      max="1000"
-                    />
-                    <Button
-                      onClick={updatePlatformFee}
-                      disabled={updatingFee || !newFee}
-                      size="sm"
-                    >
-                      {updatingFee ? "Updating..." : "Update"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Fee in basis points (100 bps = 1%)
-                  </p>
-                </div>
-
-                {/* Update Game Master */}
-                <div className="space-y-3">
-                  <h4 className="font-semibold">Update Game Master</h4>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="New game master address"
-                      value={newGameMaster}
-                      onChange={(e) => setNewGameMaster(e.target.value)}
-                    />
-                    <Button
-                      onClick={updateGameMaster}
-                      disabled={updatingGameMaster || !newGameMaster}
-                      size="sm"
-                    >
-                      {updatingGameMaster ? "Updating..." : "Update"}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Enter a valid Ethereum address
-                  </p>
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  onClick={() => setIsAdminPanelOpen(false)}
-                >
-                  Close
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
         </div>
 
         {loading ? (
@@ -1115,7 +1057,7 @@ export default function ArenaPage() {
           </div>
         ) : (
           <div className="grid gap-6">
-            {lobbies.map((lobby) => (
+            {filteredLobbies.map((lobby) => (
               <Card
                 key={lobby.id}
                 data-lobby-id={lobby.id}
@@ -1144,6 +1086,12 @@ export default function ArenaPage() {
                             {lobby.isUserInLobby && (
                               <Badge variant="default" className="bg-green-500 text-white" aria-label="You're in this lobby">
                                 You're in this lobby
+                              </Badge>
+                            )}
+                            {account && lobby.creator?.toLowerCase() === account.toLowerCase() && (
+                              <Badge variant="outline" className="border-purple-500 text-purple-600 bg-purple-50" aria-label="You created this lobby">
+                                <Crown className="h-3 w-3 mr-1" />
+                                Creator
                               </Badge>
                             )}
                             <Badge variant="outline" className="text-xs" aria-label={`Players ${lobby.currentPlayers} of ${lobby.maxPlayers}`}>
@@ -1294,17 +1242,30 @@ export default function ArenaPage() {
           </div>
         )}
 
-        {!loading && lobbies.length === 0 && (
+        {!loading && filteredLobbies.length === 0 && (
           <Card className="border-2 border-accent/20">
             <CardContent className="py-16 text-center">
               <Trophy className="h-20 w-20 text-muted-foreground mx-auto mb-6" />
-              <h3 className="text-2xl font-bold mb-4">No Active Lobbies</h3>
+              <h3 className="text-2xl font-bold mb-4">
+                {showMyLobbies ? "No Lobbies Created" : "No Active Lobbies"}
+              </h3>
               <p className="text-muted-foreground text-lg mb-8">
-                All warriors are currently in battle. Check back soon for new challenges!
+                {showMyLobbies 
+                  ? "You haven't created any lobbies yet. Create your first lobby to get started!"
+                  : "All warriors are currently in battle. Check back soon for new challenges!"
+                }
               </p>
-              <Button variant="outline" size="lg" onClick={() => window.location.reload()}>
-                Refresh Lobbies
-              </Button>
+              <div className="flex gap-4 justify-center">
+                <Button variant="outline" size="lg" onClick={() => window.location.reload()}>
+                  Refresh Lobbies
+                </Button>
+                {showMyLobbies && (
+                  <Button size="lg" onClick={() => setIsCreateModalOpen(true)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Create Lobby
+                  </Button>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}
