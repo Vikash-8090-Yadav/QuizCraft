@@ -1,42 +1,5 @@
 [
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_feeBps",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "constructor"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "newFeeBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "FeeUpdated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "address",
-        "name": "newGameMaster",
-        "type": "address"
-      }
-    ],
-    "name": "GameMasterUpdated",
-    "type": "event"
-  },
-  {
     "anonymous": false,
     "inputs": [
       {
@@ -178,25 +141,6 @@
     "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "address",
-        "name": "player",
-        "type": "address"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "RefundClaimed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
         "indexed": true,
         "internalType": "uint256",
         "name": "lobbyId",
@@ -234,19 +178,6 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      }
-    ],
-    "name": "claimRefund",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "string",
         "name": "_name",
         "type": "string"
@@ -279,62 +210,6 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "gameMaster",
-    "outputs": [
-      {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getAllScores",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "players",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "scores",
-        "type": "uint256[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      }
-    ],
-    "name": "getLeaderboard",
-    "outputs": [
-      {
-        "internalType": "address[]",
-        "name": "",
-        "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
     "inputs": [
       {
         "internalType": "uint256",
@@ -343,12 +218,35 @@
       },
       {
         "internalType": "address",
-        "name": "_player",
+        "name": "_winner",
         "type": "address"
       }
     ],
-    "name": "getPlayerScore",
+    "name": "executeWinnerPayout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_lobbyId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getLobbyResult",
     "outputs": [
+      {
+        "internalType": "enum QuizCraftArena.LobbyStatus",
+        "name": "",
+        "type": "uint8"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
       {
         "internalType": "uint256",
         "name": "",
@@ -372,25 +270,6 @@
         "internalType": "address[]",
         "name": "",
         "type": "address[]"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      }
-    ],
-    "name": "isLeaderboardSet",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -508,14 +387,14 @@
         "type": "uint8"
       },
       {
+        "internalType": "enum QuizCraftArena.DistributionStatus",
+        "name": "distribution",
+        "type": "uint8"
+      },
+      {
         "internalType": "address",
         "name": "winner",
         "type": "address"
-      },
-      {
-        "internalType": "bool",
-        "name": "prizeDistributed",
-        "type": "bool"
       },
       {
         "internalType": "address",
@@ -579,38 +458,6 @@
   {
     "inputs": [
       {
-        "internalType": "address",
-        "name": "",
-        "type": "address"
-      }
-    ],
-    "name": "pendingReturns",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "platformFeeBps",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
@@ -642,97 +489,12 @@
   {
     "inputs": [
       {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address",
-        "name": "_winner",
-        "type": "address"
-      }
-    ],
-    "name": "resolveGame",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address[]",
-        "name": "_leaderboard",
-        "type": "address[]"
-      }
-    ],
-    "name": "setLeaderboard",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_lobbyId",
-        "type": "uint256"
-      },
-      {
-        "internalType": "address[]",
-        "name": "_players",
-        "type": "address[]"
-      },
-      {
-        "internalType": "uint256[]",
-        "name": "_scores",
-        "type": "uint256[]"
-      }
-    ],
-    "name": "submitScores",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
         "name": "newOwner",
         "type": "address"
       }
     ],
     "name": "transferOwnership",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_newGameMaster",
-        "type": "address"
-      }
-    ],
-    "name": "updateGameMaster",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_newFeeBps",
-        "type": "uint256"
-      }
-    ],
-    "name": "updatePlatformFee",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -751,13 +513,6 @@
       }
     ],
     "name": "withdrawERC20",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "withdrawRefund",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
