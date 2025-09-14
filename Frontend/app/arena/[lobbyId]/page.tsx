@@ -445,12 +445,6 @@ export default function LobbyPage() {
         }
       }
       
-      // Toast notification for all players joined
-      toast({
-        title: "🎯 All Players Joined!",
-        description: "The game will start automatically in a few seconds. Get ready!",
-        duration: 3000
-      })
       
       console.log("All players joined, starting synchronized game")
       startSynchronizedGame()
@@ -1056,17 +1050,17 @@ export default function LobbyPage() {
             
             {/* Winner Information - Show when lobby is completed or expired */}
             {(isExpired || rawStatus === 3) && winner && (
-              <div className="mt-6 p-4 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
-                    <Crown className="h-6 w-6 text-yellow-600" />
+              <div className="mt-6 p-6 bg-gradient-to-r from-yellow-100 to-orange-100 border-2 border-yellow-300 rounded-xl shadow-lg">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-full flex items-center justify-center shadow-md">
+                    <Crown className="h-7 w-7 text-white" />
                   </div>
-                  <div>
-                    <p className="text-sm text-muted-foreground">Winner</p>
-                    <p className="font-semibold text-lg">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-yellow-800 mb-1 winner-text">🏆 Winner</p>
+                    <p className="font-bold text-xl text-black mb-1 winner-text">
                       {winner.slice(0, 6)}...{winner.slice(-4)}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-sm font-semibold text-orange-700 px-3 py-1 rounded-full inline-block winner-prize">
                       Prize: {(Number.parseFloat(lobby.entryFee) * lobby.maxPlayers).toFixed(1)} CFX
                     </p>
                   </div>
