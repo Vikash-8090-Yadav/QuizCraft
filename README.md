@@ -89,6 +89,124 @@ A dynamic, AI-powered quiz platform on Conflux eSpace where users instantly play
 - mintNFT()         // Award achievement NFTs
 ```
 
+## 🔄 Technical Workflow
+
+### System Architecture Flow
+```mermaid
+graph TB
+    A[User Opens App] --> B{Choose Mode}
+    B -->|Solo Training| C[Connect Wallet]
+    B -->|Live Arena| D[Connect Wallet]
+    
+    C --> E[AI Question Generation]
+    E --> F[Play Quiz]
+    F --> G[Update Leaderboard]
+    G --> H[Mint Achievement NFT]
+    
+    D --> I[Browse/Create Lobby]
+    I --> J[Deposit CFX]
+    J --> K[Smart Contract Escrow]
+    K --> L{Wait for Players}
+    L -->|Timeout| M[Auto Refund]
+    L -->|Full| N[Start Game]
+    N --> O[AI Questions]
+    O --> P[Real-time Scoring]
+    P --> Q[Determine Winner]
+    Q --> R[Execute Payout]
+    R --> S[Transfer CFX to Winner]
+```
+
+### Smart Contract Interaction Flow
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant C as Smart Contract
+    participant A as AI API
+    participant N as NFT Contract
+    
+    Note over U,N: Solo Training Mode
+    U->>F: Connect Wallet
+    F->>A: Request Questions
+    A-->>F: Generated Questions
+    F->>U: Display Quiz
+    U->>F: Submit Answers
+    F->>F: Calculate Score
+    F->>N: Mint Achievement NFT
+    
+    Note over U,N: Live Arena Mode
+    U->>F: Create/Join Lobby
+    F->>C: createLobby()/joinLobby()
+    C->>C: Lock CFX in Escrow
+    C-->>F: Lobby Created/Joined
+    F->>A: Request Questions
+    A-->>F: Generated Questions
+    F->>U: Start Game
+    U->>F: Submit Answers
+    F->>C: Submit Results
+    C->>C: Determine Winner
+    C->>C: executeWinnerPayout()
+    C-->>F: Transfer CFX to Winner
+```
+
+### Data Flow Architecture
+```mermaid
+graph LR
+    subgraph "Frontend Layer"
+        A[Next.js App]
+        B[React Components]
+        C[Web3 Provider]
+        D[AI Integration]
+    end
+    
+    subgraph "Blockchain Layer"
+        E[Conflux eSpace]
+        F[Smart Contract]
+        G[CFX Escrow]
+        H[NFT Contract]
+    end
+    
+    subgraph "External Services"
+        I[OpenAI API]
+        J[ConfluxScan]
+        K[IPFS Storage]
+    end
+    
+    A --> B
+    B --> C
+    C --> E
+    E --> F
+    F --> G
+    F --> H
+    A --> D
+    D --> I
+    F --> J
+    H --> K
+```
+
+### User Journey Flow
+```mermaid
+journey
+    title QuizCraft User Journey
+    section Discovery
+      Visit App: 5: User
+      Connect Wallet: 4: User
+      Choose Mode: 5: User
+    section Solo Mode
+      Select Category: 4: User
+      Play Quiz: 5: User
+      View Score: 5: User
+      Earn NFT: 5: User
+    section Arena Mode
+      Browse Lobbies: 4: User
+      Join Lobby: 3: User
+      Deposit CFX: 3: User
+      Wait for Players: 2: User
+      Play Game: 5: User
+      Win/Lose: 4: User
+      Receive Prize: 5: User
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
