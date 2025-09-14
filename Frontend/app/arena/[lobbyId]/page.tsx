@@ -292,7 +292,36 @@ export default function LobbyPage() {
       if (!isViewingResults || gameResults.length > 0) return
       
       try {
-        // Fetch results from the API
+        // First, try to get results from smart contract using getLobbyResult
+        const hasWindowProvider = typeof window !== 'undefined' && (window as any).ethereum
+        const browserProvider = hasWindowProvider ? new ethers.BrowserProvider((window as any).ethereum) : null
+        const rpcProvider = new ethers.JsonRpcProvider(CONFLUX_TESTNET.rpcUrl)
+        const provider = (hasWindowProvider && isOnConflux) ? (browserProvider as any) : (rpcProvider as any)
+
+        const contract = new ethers.Contract(
+          CONTRACT_ADDRESSES.QUIZ_CRAFT_ARENA,
+          QUIZ_CRAFT_ARENA_ABI,
+          provider
+        )
+
+        try {
+          const [contractStatus, contractWinner, contractPrizePool] = await contract.getLobbyResult(numericLobbyId)
+          console.log('Smart contract results:', { contractStatus, contractWinner, contractPrizePool })
+          
+          // Update winner and prize information from contract
+          if (contractWinner && contractWinner !== '0x0000000000000000000000000000000000000000') {
+            setWinner(contractWinner)
+          }
+          
+          // Update status if available
+          if (contractStatus !== undefined) {
+            setRawStatus(Number(contractStatus))
+          }
+        } catch (contractError) {
+          console.log('getLobbyResult not available yet or error:', contractError)
+        }
+
+        // Fetch detailed results from the API
         const response = await fetch(`/api/scores/all-players?lobbyId=${lobbyId}`)
         if (response.ok) {
           const data = await response.json()
@@ -307,7 +336,7 @@ export default function LobbyPage() {
             }))
             setGameResults(results)
             
-            // Set winner if not already set
+            // Set winner if not already set from contract
             if (!winner && results.length > 0) {
               const winnerPlayer = results.reduce((prev: any, current: any) => 
                 prev.score > current.score ? prev : current
@@ -322,7 +351,7 @@ export default function LobbyPage() {
     }
 
     fetchResultsForViewing()
-  }, [isViewingResults, lobbyId, gameResults.length, winner])
+  }, [isViewingResults, lobbyId, gameResults.length, winner, numericLobbyId, isOnConflux])
 
   // Listen to PlayerJoined events scoped to this lobby to refresh membership promptly
   useEffect(() => {
@@ -1024,6 +1053,26 @@ export default function LobbyPage() {
                 </div>
               </div>
             </div>
+            
+            {/* Winner Information - Show when lobby is completed or expired */}
+            {(isExpired || rawStatus === 3) && winner && (
+              <div className="mt-6 p-4 bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 rounded-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                    <Crown className="h-6 w-6 text-yellow-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">Winner</p>
+                    <p className="font-semibold text-lg">
+                      {winner.slice(0, 6)}...{winner.slice(-4)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Prize: {(Number.parseFloat(lobby.entryFee) * lobby.maxPlayers).toFixed(1)} CFX
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
