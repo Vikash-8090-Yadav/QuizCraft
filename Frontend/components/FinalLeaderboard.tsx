@@ -162,11 +162,11 @@ export default function FinalLeaderboard({
           </div>
           
           {isCurrentPlayerWinner && (
-            <div className="bg-gradient-to-r from-yellow-100 to-orange-100 border-2 border-yellow-300 rounded-2xl p-4 animate-pulse">
-              <h2 className="text-2xl font-bold text-yellow-800 flex items-center justify-center gap-2">
-                <Crown className="h-6 w-6" />
+            <div className="bg-gradient-to-r from-yellow-200 to-orange-200 border-2 border-yellow-400 rounded-2xl p-6 shadow-xl animate-pulse">
+              <h2 className="text-3xl font-bold text-gray-900 flex items-center justify-center gap-3">
+                <Crown className="h-8 w-8 text-yellow-600" />
                 Congratulations! You're the Champion! 🏆
-                <Crown className="h-6 w-6" />
+                <Crown className="h-8 w-8 text-yellow-600" />
               </h2>
             </div>
           )}
