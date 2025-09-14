@@ -1,23 +1,4 @@
 {
-  "/api/game-sync/route": "app/api/game-sync/route.js",
-  "/api/leaderboard/achievements/route": "app/api/leaderboard/achievements/route.js",
-  "/api/leaderboard/global/route": "app/api/leaderboard/global/route.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/api/leaderboard/test/route": "app/api/leaderboard/test/route.js",
-  "/api/resolve-game/route": "app/api/resolve-game/route.js",
-  "/api/scores/by-lobby/route": "app/api/scores/by-lobby/route.js",
-  "/api/scores/all-players/route": "app/api/scores/all-players/route.js",
-  "/api/leaderboard/lobbies/route": "app/api/leaderboard/lobbies/route.js",
-  "/api/scores/debug/route": "app/api/scores/debug/route.js",
-  "/api/scores/upsert/route": "app/api/scores/upsert/route.js",
-  "/api/set-leaderboard/route": "app/api/set-leaderboard/route.js",
-  "/api/submit-scores/route": "app/api/submit-scores/route.js",
-  "/api/submit-score/route": "app/api/submit-score/route.js",
-  "/api/generate-quiz/route": "app/api/generate-quiz/route.js",
-  "/arena/[lobbyId]/page": "app/arena/[lobbyId]/page.js",
-  "/leaderboard/page": "app/leaderboard/page.js",
   "/arena/page": "app/arena/page.js",
-  "/solo/page": "app/solo/page.js",
-  "/nfts/page": "app/nfts/page.js",
-  "/page": "app/page.js"
+  "/arena/[lobbyId]/page": "app/arena/[lobbyId]/page.js"
 }
