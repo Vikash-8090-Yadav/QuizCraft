@@ -1,107 +1,278 @@
-Of course. Here is the complete project description, architecture, and implementation plan explicitly designed for the **Conflux** blockchain.
+# 🧠 QuizCraft AI - Conflux Hackathon Submission
 
----
+[![Conflux](https://img.shields.io/badge/Conflux-eSpace-blue)](https://confluxnetwork.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-15.2.4-black)](https://nextjs.org/)
+[![Solidity](https://img.shields.io/badge/Solidity-^0.8.0-blue)](https://soliditylang.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9.2-blue)](https://www.typescriptlang.org/)
 
-## **Hackathon Project Submission: QuizCraft AI on Conflux**
+> **Your Knowledge, On-Chain. Powered by Conflux.**
 
-### **Tagline:** Your Knowledge, On-Chain. Powered by Conflux.
-
-### **One-Liner Pitch:**
 A dynamic, AI-powered quiz platform on Conflux eSpace where users instantly play solo for points and NFTs or compete in live PvP matches for CFX prizes, leveraging Conflux's high throughput and low fees.
 
+## 🎯 Live Demo
+
+🌐 **Live Application**: [https://quiz-craft-vjl5.vercel.app/](https://quiz-craft-vjl5.vercel.app/)
+
+📱 **Testnet**: Conflux eSpace Testnet  
+🔗 **Contract**: [View on ConfluxScan](https://evmtestnet.confluxscan.org/)
+
+## 🚀 Problem & Solution
+
+### The Problem
+- Traditional quiz apps are centralized with repetitive content
+- No real ownership or monetary rewards
+- High and unpredictable fees on other blockchains
+- Micro-transactions for quizzes are impractical
+
+### Our Solution
+**QuizCraft AI** is built natively on **Conflux eSpace**, utilizing its low transaction costs and fast finality to enable a seamless, rewarding quiz experience with a dual-mode system:
+
+1. **🎮 Solo Training Mode**: Instantly play AI-generated quizzes to earn points and win NFTs—no waiting, no fees
+2. **⚔️ Live Arena Mode**: Deposit CFX to enter competitive, winner-takes-all matches with transparent smart contract payouts
+
+## ✨ Key Features
+
+### 🤖 AI-Powered Question Generation
+- Dynamic, unique questions generated using OpenAI GPT-4
+- Multiple difficulty levels and categories
+- Real-time question generation for each game
+- Verifiable fairness through on-chain question hashing
+
+### 💰 CFX-Based Economy
+- **Entry Fees**: Small CFX deposits (0.1 - 2 CFX)
+- **Prize Pools**: Winner-takes-all CFX distribution
+- **Automatic Refunds**: Failed lobbies auto-refund participants
+- **Low Fees**: Leveraging Conflux's minimal transaction costs
+
+### 🏆 Dual Gameplay Modes
+
+#### Solo Training Mode (Free-to-Play)
+- ✅ Instant play with no transactions
+- ✅ Daily leaderboards
+- ✅ NFT rewards for top performers
+- ✅ Skill-based progression system
+
+#### Live Arena Mode (Play-to-Earn)
+- ✅ Competitive PvP matches
+- ✅ Smart contract escrow system
+- ✅ Real-time lobby management
+- ✅ Transparent prize distribution
+
+### 🎨 NFT Achievements
+- **CRC-721 Standard**: Conflux-native NFT badges
+- **Achievement System**: Unlock NFTs for milestones
+- **Leaderboard Rewards**: Daily NFT prizes for top players
+- **IPFS Metadata**: Decentralized asset storage
+
+## 🏗️ Technical Architecture
+
+### Blockchain & Smart Contracts
+- **Network**: Conflux eSpace (EVM-Compatible)
+- **Language**: Solidity ^0.8.0
+- **Framework**: Hardhat with Conflux plugin
+- **Security**: OpenZeppelin libraries
+
+### Frontend & Backend
+- **Framework**: Next.js 15.2.4 with TypeScript
+- **Web3**: Ethers.js v6
+- **UI**: Tailwind CSS + Shadcn/ui
+- **Wallet**: MetaMask integration
+- **AI**: OpenAI GPT-4 API
+
+### Smart Contract Features
+```solidity
+// Core Functions
+- createLobby()     // Create competitive lobbies
+- joinLobby()       // Join with CFX deposit
+- executeWinnerPayout() // Distribute prizes
+- refundPlayers()   // Auto-refund on timeout
+- mintNFT()         // Award achievement NFTs
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 18+ 
+- MetaMask wallet
+- Conflux eSpace Testnet configured
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/Vikash-8090-Yadav/QuizCraft.git
+   cd QuizCraft
+   ```
+
+2. **Install dependencies**
+   ```bash
+   cd Frontend
+   npm install
+   ```
+
+3. **Environment setup**
+   ```bash
+   cp .env.example .env.local
+   # Add your OpenAI API key
+   OPENAI_API_KEY="your-api-key-here"
+   ```
+
+4. **Run development server**
+   ```bash
+   npm run dev
+   ```
+
+5. **Deploy smart contracts**
+   ```bash
+   cd ../SamrtContract
+   npm install
+   npx hardhat compile
+   npx hardhat run scripts/deploy.js --network confluxTestnet
+   ```
+
+### Smart Contract Deployment
+
+```bash
+# Deploy to Conflux eSpace Testnet
+npx hardhat run scripts/deploy.js --network confluxTestnet
+
+# Verify contract
+npx hardhat verify --network confluxTestnet <CONTRACT_ADDRESS>
+```
+
+## 🎮 How to Play
+
+### Solo Mode
+1. Connect your MetaMask wallet
+2. Click "Solo Training"
+3. Choose a category and difficulty
+4. Answer AI-generated questions
+5. Earn points and climb the leaderboard
+
+### Arena Mode
+1. Click "Enter Arena"
+2. Browse available lobbies or create your own
+3. Deposit CFX entry fee
+4. Wait for other players to join
+5. Compete in real-time quiz battles
+6. Winner takes the entire CFX prize pool!
+
+## 📊 Project Structure
+
+```
+QuizCraft/
+├── Frontend/                 # Next.js application
+│   ├── app/                 # App router pages
+│   │   ├── arena/          # Lobby management
+│   │   ├── solo/           # Solo training mode
+│   │   └── api/            # API routes
+│   ├── components/         # React components
+│   └── lib/               # Utilities & contracts
+├── SamrtContract/          # Solidity smart contracts
+│   ├── contracts/         # Contract source code
+│   └── scripts/           # Deployment scripts
+└── README.md
+```
+
+## 🔧 Smart Contract Details
+
+### Core Contract: QuizCraftArena.sol
+- **Lobby Management**: Create, join, and manage game lobbies
+- **Escrow System**: Secure CFX holding during games
+- **Automatic Payouts**: Winner-takes-all prize distribution
+- **Timeout Handling**: Auto-refund for incomplete lobbies
+- **NFT Integration**: Achievement badge minting
+
+### Key Features
+- ✅ **Gas Optimized**: Efficient storage and function calls
+- ✅ **Security**: ReentrancyGuard and access controls
+- ✅ **Transparency**: All game logic on-chain
+- ✅ **Scalability**: Supports multiple concurrent lobbies
+
+## 🌟 Why Conflux?
+
+- **💸 Low Gas Fees**: Essential for micro-transactions
+- **⚡ High Throughput**: Handles multiple simultaneous games
+- **🔗 EVM Compatibility**: Easy development with existing tools
+- **🌱 Growing Ecosystem**: Perfect for innovative dApps
+- **🚀 Fast Finality**: Quick transaction confirmation
+
+## 🏆 Hackathon Highlights
+
+### Innovation
+- **AI + Blockchain**: First AI-powered quiz platform on Conflux
+- **Dual-Mode System**: Solves Web3 onboarding challenges
+- **Micro-Transaction Economy**: Leverages Conflux's low fees
+- **Real Utility**: Practical, engaging use case
+
+### Technical Excellence
+- **Full-Stack dApp**: Complete frontend + smart contract solution
+- **Production Ready**: Deployed and fully functional
+- **User Experience**: Intuitive, responsive design
+- **Security**: Audited smart contract patterns
+
+### Conflux Integration
+- **Native CFX**: Direct integration with Conflux currency
+- **CRC-721 NFTs**: Conflux-standard achievement system
+- **eSpace Deployment**: Fully deployed on Conflux eSpace
+- **Network Optimization**: Built for Conflux's strengths
+
+## 🚀 Future Roadmap
+
+### Phase 1: Core Features ✅
+- [x] Solo training mode
+- [x] Live arena battles
+- [x] CFX prize pools
+- [x] Smart contract deployment
+
+### Phase 2: Enhanced Features
+- [ ] Cross-space integration
+- [ ] $QUIZ token launch
+- [ ] Advanced NFT collections
+- [ ] Mobile app development
+
+### Phase 3: Ecosystem Growth
+- [ ] Conflux community grants
+- [ ] Partnership integrations
+- [ ] Governance token
+- [ ] Multi-language support
+
+## 🤝 Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 👥 Team
+
+- **Vikash Yadav** - Full-Stack Developer & Smart Contract Engineer
+- **AI Integration** - OpenAI GPT-4 for dynamic question generation
+- **Conflux Community** - Blockchain infrastructure and support
+
+## 🙏 Acknowledgments
+
+- **Conflux Network** for providing the perfect blockchain infrastructure
+- **OpenAI** for AI-powered question generation
+- **OpenZeppelin** for secure smart contract libraries
+- **Next.js & Vercel** for seamless deployment
+- **Hackathon Community** for inspiration and support
+
+## 📞 Contact
+
+- **GitHub**: [@Vikash-8090-Yadav](https://github.com/Vikash-8090-Yadav)
+- **Project Link**: [https://github.com/Vikash-8090-Yadav/QuizCraft](https://github.com/Vikash-8090-Yadav/QuizCraft)
+- **Live Demo**: [https://quiz-craft-vjl5.vercel.app/](https://quiz-craft-vjl5.vercel.app/)
+
 ---
 
-### **The Problem:**
-Traditional quiz apps are centralized, have repetitive content, and offer no real ownership or monetary rewards. Other blockchains can have high and unpredictable fees, making micro-transactions for quizzes impractical.
+**Built with ❤️ for the Conflux Hackathon**
 
-### **Our Solution:**
-**QuizCraft AI** is built natively on **Conflux eSpace** (EVM-compatible), utilizing its low transaction costs and fast finality to enable a seamless, rewarding quiz experience. We solve user wait times with a dual-mode system:
-1.  **Solo Training Mode:** Instantly play AI-generated quizzes to earn points on a daily leaderboard and win NFTs—no waiting, no fees.
-2.  **Live Arena Mode:** Deposit a small amount of CFX to enter a competitive, winner-takes-all match, with all prizes handled by a secure, transparent smart contract.
-
-### **Why Conflux?**
-*   **Low Gas Fees:** Essential for micro-transactions like quiz entry fees and NFT minting. Makes the game economically viable for users.
-*   **High Throughput:** Handles the transaction load of multiple simultaneous games and leaderboard updates without congestion.
-*   **EVM Compatibility:** Allows for rapid development using established Ethereum tools (MetaMask, Hardhat, Ethers.js) and easy onboarding for users.
-*   **Growing Ecosystem:** Perfect for a innovative dApp that showcases a practical and fun use case for Web3.
-
-### **Core Features & Conflux-Specific Innovation:**
-
-**1. AI Integration (The Brain):**
-*   **Dynamic Question Generation on Conflux eSpace:** The frontend calls an AI API (e.g., OpenAI) to generate unique questions. The question's hash or Merkle root can be stored on-chain for verifiable fairness in competitive modes.
-
-**2. Conflux Blockchain Integration (The Trust & Economy):**
-*   **CFX Deposits & Payouts:** All entry fees and prizes are denominated in **CFX**, leveraging its low cost for transfers.
-*   **Smart Contract Escrow on eSpace:** The core game logic resides in a Solidity smart contract deployed on Conflux eSpace. It manages:
-    *   Lobby creation and player registration.
-    *   Holding CFX in escrow.
-    *   Automatically distributing the prize pool to the winner.
-    *   **Automatic Refunds:** If a lobby fails to fill within a set time, the smart contract automatically refunds all participants their CFX.
-*   **Conflux NFT Standard (CRC-721):** All achievement badges and leaderboard prizes are minted as NFTs on Conflux, providing users with verifiable, on-chain trophies of their knowledge. These are stored on Conflux eSpace.
-
-**3. Dual-Mode Gameplay (The Engagement):**
-*   **Solo Training Mode (Free-to-Play, Score-Based):**
-    *   **Instant Play:** No transactions needed. Users play for free, and their scores are recorded off-chain (or via a gas-optimized, batched on-chain solution).
-    *   **Daily Conflux Leaderboard:** A dedicated UI shows the top players each day.
-    *   **Rewards:** Top daily players win exclusive **Conflux NFTs** (CRC-721). This drives daily engagement without requiring users to spend CFX.
-*   **Live Arena Mode (Play-to-Earn, Prize-Based):**
-    *   **Competitive Play:** Users deposit CFX (e.g., 2 CFX) to join a lobby.
-    *   **Smart Contract Escrow:** The Conflux smart contract holds all funds until the game resolves.
-    *   **Winner-Takes-All:** The smart contract automatically sends the entire CFX prize pool to the winner's Conflux eSpace address.
-
-### **Technical Architecture for Conflux:**
-
-*   **Blockchain:** **Conflux eSpace** (EVM-Compatible)
-*   **Smart Contracts:** **Solidity** (using OpenZeppelin libraries for security)
-*   **Development Framework:** **Hardhat** (with Conflux hardhat plugin)
-*   **Frontend:** **Next.js / React** with **TypeScript**
-*   **Web3 Library:** **Ethers.js**
-*   **Wallet Connection:** **MetaMask** (configured for Conflux eSpace Testnet & Mainnet)
-*   **AI API:** **OpenAI API** (GPT-4 for question generation)
-*   **Backend (Optional - for leaderboards):** A simple server or **Conflux RPC** to index events for the leaderboard, or a gas-efficient on-chain solution.
-*   **NFT Storage:** Metadata stored on **IPFS** (e.g., Pinata), with the hash stored on-chain in the NFT contract.
-
-### **How It Works (User Flow on Conflux):**
-
-1.  **User Onboarding:**
-    *   User opens the app. The website prompts them to connect their MetaMask wallet.
-    *   A guide helps them switch their MetaMask network to **Conflux eSpace Testnet/Mainnet**.
-
-2.  **Choosing a Mode:**
-    *   **"Train for Free" (Solo Mode):** Click, choose a category, and play instantly. Score is recorded.
-    *   **"Compete for CFX" (Live Arena):** Click, choose a lobby (e.g., 1v1, 5 Player), and see the entry fee (e.g., 2 CFX).
-
-3.  **Live Arena Transaction Flow:**
-    *   User clicks "Join" and approves two MetaMask transactions:
-        1.  **Approve:** To allow the game contract to spend their CFX (if using an `ERC-20` standard for wrapped CFX, though native CFX handling is preferred).
-        2.  **Join Game:** Interacts with the game contract's `joinLobby(uint256 lobbyId)` function, which locks their CFX into the contract.
-    *   The lobby waits for players. If it fills, the game starts. If it times out, the contract's `refundPlayers(uint256 lobbyId)` function is called automatically, returning their CFX.
-    *   The game plays out on the frontend. The frontend submits the winner's proof to the smart contract.
-    *   The contract verifies the result and executes `payoutWinner(uint256 lobbyId)`, sending the CFX prize to the winner.
-
-4.  **Earning NFTs:**
-    *   After a day ends, the backend or an admin account triggers the `mintLeaderboardNFTs(address[] winners)` function in the NFT contract, sending NFTs to the top players' addresses.
-
-### **Demo Plan for Hackathon (on Conflux Testnet):**
-
-1.  **Show Conflux Infrastructure:**
-    *   Show the contract deployed on **Conflux eSpace Testnet** and verified on ConfluxScan.
-2.  **Live Demo:**
-    *   Connect a MetaMask wallet to Conflux eSpace Testnet.
-    *   **Demo Solo Mode:** Play a full quiz, show the leaderboard updating.
-    *   **Demo Live Arena:** Use two separate MetaMask wallets to show joining a lobby, the contract holding CFX, simulating a game, and showing the winner receiving CFX automatically in their wallet.
-    *   **Show an NFT:** Mint an NFT for a winner and view it on a Conflux NFT marketplace like TSpace.
-3.  **Key Code to Highlight:**
-    *   The Solidity smart contract for game logic, emphasizing the escrow and automatic refund features.
-    *   The configuration files (`hardhat.config.js`) showing the Conflux eSpace RPC setup.
-    *   The frontend code for switching networks to Conflux automatically.
-
-### **Future Conflux-Specific Roadmap:**
-
-*   **Integration with Conflux Core Space:** Explore using native CFX via cross-space capabilities for even lower fees.
-*   **Conflux Community Grants:** Apply for grants to further develop and market the platform.
-*   **$QUIZ Token on Conflux:** Launch a native utility token on Conflux for governance, fees, and rewards.
-
-### **Why This Will Win on Conflux:**
-
-This project is a perfect showcase of **Conflux's strengths**: low fees, high speed, and EVM compatibility. It's not just a generic DApp; it's a **fun, engaging, and practical use case** that provides real utility and demonstrates why the Conflux network is an ideal platform for the next generation of Web3 applications. The dual-mode system ensures a smooth user experience, directly addressing onboarding challenges in Web3.
+*Showcasing the power of Conflux eSpace for innovative, practical Web3 applications.*
