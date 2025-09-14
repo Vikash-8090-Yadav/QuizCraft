@@ -20,7 +20,7 @@ import {
   Timer,
   Award
 } from "lucide-react"
-import { useWinnerToast } from "@/hooks/use-winner-toast"
+import { toast } from "@/hooks/use-toast"
 
 interface PlayerResult {
   player_address: string
@@ -49,7 +49,6 @@ export default function FinalLeaderboard({
   const [showCelebration, setShowCelebration] = useState(false)
   const [winner, setWinner] = useState<PlayerResult | null>(null)
   const [isCurrentPlayerWinner, setIsCurrentPlayerWinner] = useState(false)
-  const { toast } = useWinnerToast()
 
   // Sort results by score with tie-breakers
   const sortedResults = results

@@ -1,22 +1,21 @@
 "use client"
 
+// Inspired by react-hot-toast library
 import * as React from "react"
+
 import type {
   ToastActionElement,
-  WinnerToastProps,
-} from "@/components/ui/winner-toast"
+  ToastProps,
+} from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 8000 // 8 seconds for winner toasts
+const TOAST_REMOVE_DELAY = 1000000
 
-type WinnerToasterToast = WinnerToastProps & {
+type ToasterToast = ToastProps & {
   id: string
   title?: React.ReactNode
   description?: React.ReactNode
   action?: ToastActionElement
-  amount?: number
-  position?: number
-  variant?: "winner" | "payout" | "celebration" | "destructive"
 }
 
 const actionTypes = {
@@ -38,23 +37,23 @@ type ActionType = typeof actionTypes
 type Action =
   | {
       type: ActionType["ADD_TOAST"]
-      toast: WinnerToasterToast
+      toast: ToasterToast
     }
   | {
       type: ActionType["UPDATE_TOAST"]
-      toast: Partial<WinnerToasterToast>
+      toast: Partial<ToasterToast>
     }
   | {
       type: ActionType["DISMISS_TOAST"]
-      toastId?: WinnerToasterToast["id"]
+      toastId?: ToasterToast["id"]
     }
   | {
       type: ActionType["REMOVE_TOAST"]
-      toastId?: WinnerToasterToast["id"]
+      toastId?: ToasterToast["id"]
     }
 
 interface State {
-  toasts: WinnerToasterToast[]
+  toasts: ToasterToast[]
 }
 
 const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
@@ -94,6 +93,8 @@ export const reducer = (state: State, action: Action): State => {
     case "DISMISS_TOAST": {
       const { toastId } = action
 
+      // ! Side effects ! - This could be extracted into a dismissToast() action,
+      // but I'll keep it here for simplicity
       if (toastId) {
         addToRemoveQueue(toastId)
       } else {
@@ -139,12 +140,12 @@ function dispatch(action: Action) {
   })
 }
 
-type Toast = Omit<WinnerToasterToast, "id">
+type Toast = Omit<ToasterToast, "id">
 
 function toast({ ...props }: Toast) {
   const id = genId()
 
-  const update = (props: WinnerToasterToast) =>
+  const update = (props: ToasterToast) =>
     dispatch({
       type: "UPDATE_TOAST",
       toast: { ...props, id },
@@ -170,35 +171,7 @@ function toast({ ...props }: Toast) {
   }
 }
 
-// Specialized toast functions for winner payouts
-function showWinnerToast(amount: number, position: number) {
-  return toast({
-    title: `🏆 Winner! Position #${position}`,
-    description: `Congratulations! You won ${amount} tokens!`,
-    variant: "winner",
-    amount,
-    position,
-  })
-}
-
-function showPayoutToast(amount: number) {
-  return toast({
-    title: `💰 Payout Received`,
-    description: `${amount} tokens have been added to your wallet!`,
-    variant: "payout",
-    amount,
-  })
-}
-
-function showCelebrationToast(message: string) {
-  return toast({
-    title: `🎉 Celebration!`,
-    description: message,
-    variant: "celebration",
-  })
-}
-
-function useWinnerToast() {
+function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
   React.useEffect(() => {
@@ -214,11 +187,8 @@ function useWinnerToast() {
   return {
     ...state,
     toast,
-    showWinnerToast,
-    showPayoutToast,
-    showCelebrationToast,
     dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
   }
 }
 
-export { useWinnerToast, toast, showWinnerToast, showPayoutToast, showCelebrationToast }
+export { useToast, toast }

@@ -5,7 +5,7 @@ import "./globals.css"
 import { Web3Provider } from "@/components/Web3Provider"
 import { Navbar } from "@/components/Navbar"
 import { ThemeProvider } from "@/components/theme-provider"
-import { WinnerToaster } from "@/components/ui/winner-toaster"
+import { Toaster } from "@/components/ui/toaster"
 
 const montserrat = Montserrat({
   subsets: ["latin"],
@@ -58,7 +58,7 @@ export default function RootLayout({
                 />
               </div>
             </div>
-            <WinnerToaster />
+            <Toaster />
           </Web3Provider>
         </ThemeProvider>
       </body>

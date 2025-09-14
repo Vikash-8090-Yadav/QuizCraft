@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { useWinnerToast } from "@/hooks/use-winner-toast"
+import { useToast } from "@/hooks/use-toast"
 import { useWeb3 } from "@/components/Web3Provider"
 import { ethers } from "ethers"
 import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
@@ -32,7 +32,7 @@ import RealTimeScores from "@/components/RealTimeScores"
 export default function LobbyPage() {
   const params = useParams()
   const router = useRouter()
-  const { toast, showWinnerToast, showPayoutToast, showCelebrationToast } = useWinnerToast()
+  const { toast } = useToast()
   const { signer, isConnected, isOnConflux, account } = useWeb3()
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [loading, setLoading] = useState(true)
