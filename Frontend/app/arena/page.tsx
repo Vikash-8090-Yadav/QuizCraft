@@ -14,7 +14,7 @@ import { CONTRACT_ADDRESSES, QUIZ_CRAFT_ARENA_ABI } from "@/lib/contracts"
 import { IS_DEVELOPMENT, CONFLUX_TESTNET } from "@/lib/constants"
 import type { Lobby } from "@/types"
 import { Trophy, Users, Coins, Loader2, Swords, Crown, Zap, Plus, X, CheckCircle, AlertCircle, Info, RefreshCw, Clock } from "lucide-react"
-import { useToast } from "@/components/ui/use-toast"
+import { useWinnerToast } from "@/hooks/use-winner-toast"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 declare global {
@@ -25,7 +25,7 @@ declare global {
 
 export default function ArenaPage() {
   const { signer, isConnected, isOnConflux, chainId, switchToConflux, account } = useWeb3()
-  const { toast } = useToast()
+  const { toast, showWinnerToast, showPayoutToast, showCelebrationToast } = useWinnerToast()
   const [lobbies, setLobbies] = useState<Lobby[]>([])
   const [loading, setLoading] = useState(true)
   const [joiningLobby, setJoiningLobby] = useState<string | null>(null)
