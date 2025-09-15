@@ -173,6 +173,7 @@ export default function SynchronizedQuizGame({
     
     if (questionIndex >= questions.length) {
       // Game should have ended
+      console.log('Game ended via questionIndex check');
       endGame()
       return
     }
@@ -196,6 +197,7 @@ export default function SynchronizedQuizGame({
       
       if (currentQuestionIndex >= questions.length) {
         clearInterval(syncTimer)
+        console.log('Game ended via currentQuestionIndex check');
         endGame()
         return
       }
@@ -316,6 +318,13 @@ export default function SynchronizedQuizGame({
       return;
     }
     
+    // Additional safeguard: check if game is already finished
+    if (gameState === 'finished') {
+      console.log('Game already finished, skipping duplicate endGame call');
+      return;
+    }
+    
+    console.log('Ending synchronized game - first time');
     setGameState('finished')
     setGameProtectionActive(false)
     setScoresSubmitted(true)
