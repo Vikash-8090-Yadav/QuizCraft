@@ -178,18 +178,26 @@ sequenceDiagram
    ```
 
 3. **Environment setup**
-   ```bash
-   cp .env.example .env.local
+  
+    create  .env.local and copy all these 
    # Add your OpenAI API key
-   OPENAI_API_KEY="your-api-key-here"
+
    ```
 
-4. **Run development server**
+    NEXT_PUBLIC_SUPABASE_UR = "your-api-key-here"
+
+   NEXT_PUBLIC_SUPABASE_ANON_KEY= "your-api-key-here"
+
+   OPENAI_API_KEY="your-api-key-here"
+   ```
+   
+
+5. **Run development server**
    ```bash
    npm run dev
    ```
 
-5. **Deploy smart contracts**
+6. **Deploy smart contracts**
    ```bash
    cd ../SamrtContract
    npm install
