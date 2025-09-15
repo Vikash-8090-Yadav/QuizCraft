@@ -22,7 +22,7 @@ interface PlayerScore {
   has_played: boolean
 }
 
-export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameState = 'waiting', currentPlayerAddress }: RealTimeScoresProps) {
+export default function RealTimeScores({ lobbyId, refreshInterval = 10000, gameState = 'waiting', currentPlayerAddress }: RealTimeScoresProps) {
   const [scores, setScores] = useState<PlayerScore[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -44,6 +44,9 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
 
   const fetchScores = async () => {
     try {
+      // Prevent multiple simultaneous requests
+      if (loading) return
+      
       setLoading(true)
       
       // Validate lobbyId before making the request
@@ -88,15 +91,11 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
   }
 
   useEffect(() => {
-    // Fetch scores immediately
+    // Fetch scores immediately on mount
     fetchScores()
     
-    // Set up interval for refreshing scores
-    const intervalId = setInterval(fetchScores, refreshInterval)
-    
-    // Clean up interval on unmount
-    return () => clearInterval(intervalId)
-  }, [lobbyId, refreshInterval])
+    // No automatic refresh - only manual refresh via button
+  }, [lobbyId])
 
   const getRankIcon = (index: number, hasPlayed: boolean) => {
     if (!hasPlayed) {
@@ -257,10 +256,40 @@ export default function RealTimeScores({ lobbyId, refreshInterval = 5000, gameSt
           </div>
         ) : scores.length === 0 ? (
           <div className="p-12 text-center">
-            <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="h-10 w-10 text-gray-400" />
+            {/* Big Celebration Button */}
+            <div className="mb-8">
+              <button
+                onClick={fetchScores}
+                disabled={loading}
+                className="group relative inline-flex items-center justify-center px-12 py-6 text-2xl font-bold text-white bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 rounded-full shadow-2xl hover:shadow-3xl transform hover:scale-110 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
+                title="Click to reveal the leaderboard!"
+              >
+                {/* Celebration Background */}
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-400 via-purple-400 to-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                
+                {/* Big Celebration Emojis */}
+                <div className="relative z-10 flex items-center gap-4">
+                  <span className="text-4xl animate-bounce">🌸</span>
+                  <span className="text-4xl animate-bounce" style={{ animationDelay: '0.1s' }}>🎉</span>
+                  <span className="text-4xl animate-bounce" style={{ animationDelay: '0.2s' }}>✨</span>
+                  <span className="text-4xl animate-bounce" style={{ animationDelay: '0.3s' }}>🎊</span>
+                  <span className="text-4xl animate-bounce" style={{ animationDelay: '0.4s' }}>🌺</span>
+                </div>
+                
+                {/* Loading State */}
+                {loading && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-20 rounded-full">
+                    <RefreshCw className="h-10 w-10 text-white animate-spin" />
+                  </div>
+                )}
+              </button>
             </div>
-            <p className="text-muted-foreground font-medium">No players found in this lobby.</p>
+            <p className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-purple-600 mb-2">
+              Click on this to reveal the Leaderboard!
+            </p>
+            <p className="text-lg text-gray-600 font-medium">
+              🌸 Celebrate the winners! 🌸
+            </p>
           </div>
         ) : (
           <div className="space-y-3">

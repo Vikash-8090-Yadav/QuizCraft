@@ -456,11 +456,11 @@ export default function ArenaPage() {
     // Temporarily disable event listeners to avoid rate limiting
     // setupEventListeners()
     
-    // Use periodic refresh instead
+    // Use periodic refresh instead - reduced frequency
     const refreshInterval = setInterval(() => {
       console.log("Periodic refresh: Updating lobbies")
       fetchLobbies()
-    }, 30000) // Refresh every 30 seconds
+    }, 60000) // Refresh every 60 seconds - reduced frequency
 
     return () => {
       clearTimeout(debounceTimer)

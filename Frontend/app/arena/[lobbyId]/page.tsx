@@ -28,11 +28,13 @@ import {
 } from "lucide-react"
 import SynchronizedQuizGame from "@/components/SynchronizedQuizGame"
 import RealTimeScores from "@/components/RealTimeScores"
+import { useWinnerPayoutToast } from "@/components/WinnerPayoutToast"
 
 export default function LobbyPage() {
   const params = useParams()
   const router = useRouter()
   const { toast } = useToast()
+  const { showSuccessToast, showErrorToast, WinnerToast } = useWinnerPayoutToast()
   const { signer, isConnected, isOnConflux, account } = useWeb3()
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [loading, setLoading] = useState(true)
@@ -479,10 +481,19 @@ export default function LobbyPage() {
   useEffect(() => {
     if (gameStarted || gameFinished) return
     
-    const pollInterval = setInterval(() => {
-      // Re-fetch lobby details to check for new players
-      fetchLobbyDetails()
-    }, 2000) // Poll every 2 seconds
+    let isPolling = false
+    
+    const pollInterval = setInterval(async () => {
+      // Prevent overlapping requests
+      if (isPolling) return
+      
+      isPolling = true
+      try {
+        await fetchLobbyDetails()
+      } finally {
+        isPolling = false
+      }
+    }, 5000) // Poll every 5 seconds - reduced frequency
     
     return () => clearInterval(pollInterval)
   }, [gameStarted, gameFinished])
@@ -668,21 +679,13 @@ export default function LobbyPage() {
       // Dismiss loading toast
       loadingToast.dismiss()
 
-      // Enhanced success toast with transaction link
-      toast({ 
-        title: "🏆 Prize Resolved Successfully!", 
-        description: `The winner has received the prize pool! Transaction: ${tx.hash.slice(0, 10)}...`,
-        duration: 8000,
-        action: (
-          <a 
-            href={`https://evmtestnet.confluxscan.org/tx/${tx.hash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-blue-600 hover:text-blue-800 underline text-sm font-medium"
-          >
-            View on ConfluxScan
-          </a>
-        )
+      // Show enhanced winner payout success toast
+      showSuccessToast({
+        title: "🏆 Prize Resolved Successfully!",
+        description: "The winner has received the prize pool!",
+        transactionHash: tx.hash,
+        winnerAddress: winnerAddress,
+        prizeAmount: lobby ? (Number.parseFloat(lobby.entryFee) * lobby.maxPlayers).toFixed(1) : undefined
       })
       
       // Update prize distribution status locally
@@ -724,11 +727,10 @@ export default function LobbyPage() {
         errorMessage = 'Failed to transfer prize to winner. Please try again.'
       }
       
-      toast({
+      // Show enhanced winner payout error toast
+      showErrorToast({
         title: "❌ Prize Resolution Failed",
-        description: errorMessage,
-        variant: "destructive",
-        duration: 8000
+        errorMessage: errorMessage
       })
     } finally {
       setResolvingPrize(false)
@@ -1037,6 +1039,7 @@ export default function LobbyPage() {
             )}
           </div>
         </div>
+
 
         {/* Lobby Info */}
         <Card className="mb-8">
@@ -1370,6 +1373,9 @@ export default function LobbyPage() {
         </Card>
 
       </div>
+      
+      {/* Winner Payout Toast */}
+      {WinnerToast}
     </div>
   )
 }

@@ -147,8 +147,8 @@ export default function SynchronizedQuizGame({
     // Initial sync
     syncWithGame()
 
-    // Poll for sync updates
-    const syncInterval = setInterval(syncWithGame, 1000)
+    // Poll for sync updates - reduced frequency
+    const syncInterval = setInterval(syncWithGame, 3000)
     return () => clearInterval(syncInterval)
   }, [lobbyId])
 
